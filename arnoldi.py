@@ -1,15 +1,17 @@
 from typing import Sequence, Callable
+import numpy as np
+from functools import partial
 
 import jax
 import jax.numpy as jnp
-import numpy as np
 from jax.ops import index, index_update
 
 
-def arnoldi_krylov(A_mv: Callable,
-                   A_args: Sequence,
-                   n_kry: int,
-                   v0):
+@partial(jax.jit, static_argnums=(2,))
+def arnoldi_krylov_jit(A_mv: Callable,
+                       A_args: Sequence,
+                       n_kry: int,
+                       v0):
     """
     Given an (m x m) matrix A, a vector v0, and a dimension n_kry, finds
     an orthonormal basis on the order-(n_kry+1) Krylov space defined by
@@ -28,6 +30,8 @@ def arnoldi_krylov(A_mv: Callable,
     A is represented as a function y=A(*A_args, x) implementing a linear map
     y = A@x. This is possible because A is never modified during the procedure.
 
+    *IMPORTANT*: we must have 1 <= n_kry < v0.size, but this is NOT ENFORCED
+                 because doing so is incompatible with Jit.
 
     PARAMETERS
     ----------
@@ -38,9 +42,10 @@ def arnoldi_krylov(A_mv: Callable,
                     positional arguments are allowed, and each must be a
                     Jax type.
     n_kry, Int    : The dimensions of the Krylov subspace. We must have
-                    1 <kj
-                    It should must be >= 1.
-    v0 (m,) array : Vector defining the Krylov subspace.
+                    1 < n_kry < v0.size -1, but this is 
+                    *NOT ENFORCED*
+                    since it can't be in a Jitted function.
+    v0 (N,) array : Vector defining the Krylov subspace.
 
 
     RETURNS
@@ -52,7 +57,6 @@ def arnoldi_krylov(A_mv: Callable,
     """
     dtype = v0.dtype
     m = v0.shape[0]
-    #H = jnp.zeros((n_kry + 1, n_kry), dtype=dtype)
     V = jnp.zeros((m, n_kry + 1), dtype=dtype)
 
     v = v0 / jnp.linalg.norm(v0)  # Normalize the input vector.
@@ -69,6 +73,7 @@ def arnoldi_krylov(A_mv: Callable,
     return (V, H)
 
 
+@jax.jit
 def _arnoldi_scan_function(carry, k, A_mv, A_args):
     """
     Main loop of arnoldi_krylov in a jax.lax.scan - friendly format.
@@ -79,12 +84,11 @@ def _arnoldi_scan_function(carry, k, A_mv, A_args):
     eps = 1E-8
     V, v_old = carry
     r = A_mv(*A_args, v_old)
-    v_new, hs = gs_orthogonalize(V, r, k)
+    v_new, hs = gs_orthogonalize(V, r)
     v_norm = jnp.linalg.norm(v_new)
     switch = v_norm > eps
-    #v_new = v_new / v_norm
 
-    #Normalize v unless it is the zero vector.
+    #  Normalize v unless it is the zero vector.
     v_new = jax.lax.cond(switch,
                          (v_new, v_norm), lambda x: x[0] / x[1],
                          v_new, lambda x: jnp.zeros(x.size, dtype=x.dtype),
@@ -95,7 +99,8 @@ def _arnoldi_scan_function(carry, k, A_mv, A_args):
     return newcarry, stack
 
 
-def gs_orthogonalize(V, r, k):
+@jax.jit
+def gs_orthogonalize(V, r):
     """
     Orthonormalize r against the vectors in the columns of V using
     the stablized Gram-Schmidt procedure. More specifically, given
@@ -108,7 +113,6 @@ def gs_orthogonalize(V, r, k):
     V, array-like (N, n): Columns are the basis vectors to be orthonormalized
                           against. They are assumed already orthonormal.
     r, array-like (N,)  : The vector to orthonormalized against V.
-    k, int              : V[:, k:] is assumed to be zero (not implemented).
 
 
     RETURNS
@@ -124,6 +128,7 @@ def gs_orthogonalize(V, r, k):
     return (r, hs)
 
 
+@jax.jit
 def _gs_step(r, v_i):
     """
     Performs one iteration of the stabilized Gram-Schmidt procedure, with

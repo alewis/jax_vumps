@@ -398,6 +398,7 @@ def matmat(mv, mv_args, X):
     return jnp.hstack([mv(*mv_args, col.reshape(-1, 1)) for col in X.T])
 
 
+@jax.tree_util.Partial
 @jax.jit
 def matrix_matvec(A, x):
     return A@x
