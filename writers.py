@@ -1,16 +1,15 @@
 import os
-import datetime
-import shutil
 import numpy as np
 import pickle as pkl
-import sys
 
 from typing import String
 
 
 class Writer:
     """
-    Writer is a very ugly class to handle I/O for MPS simulations.
+    A class to handle VUMPS I/O. Maintains a 'console file' to store
+    console output, a 'data file' to save observables to, and a
+    pickle directory to save the final wavefunction.
 
     MEMBERS
     -------
@@ -21,7 +20,7 @@ class Writer:
 
     PUBLIC METHODS
     --------------
-    console_write: Prints a string to console and then appends it to 
+    console_write: Prints a string to console and then appends it to
                    self.print_file.
 
     """
@@ -43,9 +42,8 @@ class Writer:
         headers  : A list of strings. Each will be written at the beginning
                    of datafile as a header. For example, headers=["A", "B"]
                    will result in 'datafile' beginning with
-                   # [0] = Iteration
-                   # [1] = A
-                   # [2] = B
+                   # [0] = A
+                   # [1] = B
                    This is meant to indicate that e.g.
                    A = np.loadtxt(datafilename)[:, 0].
         """
@@ -60,13 +58,12 @@ class Writer:
         self.console_file = os.path.join(self.directory, consolefilename)
         self.data_file = os.path.join(self.directory, datafilename)
 
-        the_header = ["# [0] = Iteration \n # [" + str(i+1) + "] = " + header
+        the_header = ["# [" + str(i) + "] = " + header
                       + "\n" for i, header in enumerate(headers)]
         with open(self.data_file, "wb") as f:
             np.savetxt(f, the_header)
 
-
-    def console_write(self, outstring, verbose=True):
+    def write(self, outstring, verbose=True):
         """
         Prints a string to console and then appends it, along with a newline,
         to self.consolefile. If verbose is False, saves to self.consolefile
@@ -77,16 +74,15 @@ class Writer:
         with open(self.console_file, "a+") as f:
             f.write(outstring+"\n")
 
-    def data_write(self, data, header=None):
+    def data_write(self, data):
         """
         Appends the data in the array 'data' to self.datafile. data should
-        represent a row of that file, e.g. each computed observable 
+        represent a row of that file, e.g. each computed observable
         at a given timestep in order.
         """
         to_write = data.reshape((1, data.size))
         with open(self.data_file, "ab") as f:
             np.savetxt(f, to_write)
-
 
     def pickle(self, to_pickle, timestep: int, name=None):
         """
@@ -101,14 +97,3 @@ class Writer:
         self.console_write("Pickling to " + fname)
         with open(fname, "wb") as f:
             pkl.dump(to_pickle, f)
-
-
-
-
-
-
-
-
-
-
-
