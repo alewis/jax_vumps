@@ -1,9 +1,11 @@
 import jax.numpy as jnp
 import numpy as np
+import scipy as sp
 
 import jax_vumps.arnoldi as arnoldi
 import jax_vumps.operations as ops
 import jax_vumps.utils as utils
+import jax_vumps.gmres as gmres
 
 def errstring(arr1, name1, arr2, name2):
     """
@@ -125,12 +127,13 @@ def test_arnoldi_fixed_point(A_mv, A_args, n_kry, v0, thresh=1E-5,
 
 
 def test_arnoldi_vs_numpy(A_mv, A_args, A_np_op, n_kry, thresh=1E-5,
-                          verbose=False):
+                          verbose=True):
     N = A_np_op.shape[1]
     v0 = np.random.rand(N)
     v0j = jnp.array(v0)
     V_np, H_np = arnoldi.arnoldi_krylov_numpy(A_np_op, v0, n_kry)
-    V_jax, H_jax = arnoldi.arnoldi_krylov(A_mv, A_args, n_kry, v0j)
+    #V_jax, H_jax = arnoldi.arnoldi_krylov(A_mv, A_args, n_kry, v0j)
+    V_jax, H_jax = arnoldi.arnoldi_krylov_jax(A_mv, A_args, n_kry, v0j)
     err_v = jnp.linalg.norm(jnp.abs((V_np - V_jax)))/(V_np.size)
     err_H = jnp.linalg.norm(jnp.abs((H_np - H_jax)))/(H_np.size)
     pass_v = True
@@ -167,13 +170,45 @@ def do_arnoldi_vs_numpy_dense(thresh=1E-5):
             jax_args = [Aj, ]
             np_op = ops.numpy_matrix_linop(A)
             mepass, err = test_arnoldi_vs_numpy(jax_mv, jax_args, np_op, n_kry,
-                                                thresh=1E-5)
+                                                thresh=1E-5, verbose=True)
             if not mepass:
                 print("Arnoldi vs numpy failed at N=", N, "n_kry=", n_kry,
                       "by err=", err)
             allpass = allpass and mepass
     print("Done!")
     return allpass
+
+
+def do_test_gs_orthogonalize(thresh=1E-5):
+    print("Testing orthogonalization.")
+    V = np.array([[1., 0.],
+                 [0., 1.],
+                 [0., 0.]])
+    Vj = jnp.array(V)
+    r = np.array([1., 1., 1.])
+    rj = jnp.array(r)
+
+    hnp = np.zeros(2)
+    for j in range(2):  # Subtract the projections on previous vectors
+        vj = V[:, j]
+        hjk = np.vdot(vj, r)
+        r = r - hjk * vj
+        hnp[j] = hjk
+
+    rjax, hjax = arnoldi.gs_orthogonalize(Vj, rj)
+    rpass = np.allclose(rjax, r)
+    hpass = np.allclose(hjax, hnp)
+    allpass = rpass and hpass
+    if not allpass:
+        print("Failed!")
+    else:
+        print("Passed!")
+    #  print("rJax, r:")
+    #  print(rjax, r)
+    #  print("hJax, hnp:")
+    #  print(hjax, hnp)
+    return allpass
+
 
 
 def do_arnoldi_tests_random_dense_matrices(thresh=1E-5):
@@ -275,22 +310,81 @@ def do_arnoldi_test_fixed(N=2, n_kry=2, thresh=1E-5):
 ###############################################################################
 # GMRES
 ###############################################################################
-def test_gmres_vs_np(A, b, x0, tol=1E-5, n_kry=20, maxiter=None, thresh=1E-7):
-    N = x0.size
-    np_mv = ops.numpy_matrix_matvec
-    np_op = scipy.sparse.linalg.LinearOperator(x0.dtype, x0.shape,
-                                               matvec=partial(np_mv, A))
-    np_x, _ = scipy.sparse.linalg.gres(np_op, b, x0=x0, tol=tol,
-                                       restart=n_kry,
-                                       maxiter=maxiter)
-    jax_mv = ops.matrix_matvec(A)
-    jax_x, _ = gmres.gmres_m(jax_mv, [A], b, x0, tol, n_kry, maxiter)
-    err = jnp.linalg.norm(jnp.abs(np_x - jax_x))
+def test_gmres_vs_np(A, b, x0, tol=1E-5, n_kry=20, maxiter=4, thresh=1E-5,
+                     verbose=False):
+    """
+    Tests Jax GMRES against SciPy for particular input.
+    """
+    np_op = ops.numpy_matrix_linop(A)
+    np_x, _ = sp.sparse.linalg.gmres(np_op, b, x0=x0, tol=tol,
+                                     restart=n_kry,
+                                     maxiter=maxiter)
+    jax_mv = ops.matrix_matvec
+    jax_x, err, n_iter, converged = gmres.gmres_m(jax_mv, [jnp.array(A), ],
+                                                  jnp.array(b), jnp.array(x0), 
+                                                  n_kry=n_kry, 
+                                                  max_restarts=maxiter,
+                                                  tol=tol)
+    err = jnp.linalg.norm(jnp.abs(np_x - jax_x))/np_x.size
     passed = True
     if err > thresh:
         passed = False
-        print("Jax and SciPy gmres differed by ", err)
+        if verbose:
+            print("Jax and SciPy gmres differed by ", err)
+            print("Jax :", jax_x)
+            print("SciPy :", np_x)
     return (passed, err)
+
+
+def do_test_gmres_simple(tol=1E-5, verbose=False):
+    """
+    Tests the Jax implementation of GMRES against the analytically
+    determined solution
+    of a simple 2x2 system.
+    """
+    verbose = True
+    print("Testing gmres on a fixed simple system.")
+    A = jnp.array(np.array([[1, 1],
+                           [3, -4]]))
+    b = jnp.array(np.array([3, 2]))
+    v0 = jnp.ones(2)
+    n_kry = 2
+
+    x = gmres.gmres(ops.matrix_matvec, [A, ], b, n_kry, v0)
+    solution = np.array([2., 1.])
+    passed = np.allclose(x, solution)
+    if passed:
+        print("Passed!")
+    else:
+        print("Failed!")
+        if verbose:
+            x2 = gmres.full_orthog(ops.matrix_matvec, [A, ], b, n_kry, v0)
+            print("Correct x: ", solution)
+            print("Jax GMRES x: ", x)
+            print("Full Orthog x :", x2)
+    return passed
+
+
+def do_test_gmres_vs_np(thresh=1E-5):
+    """
+    Tests the Jax implementation of GMRES against the SciPy one, on
+    various random matrices and values of n_kry.
+    """
+    print("Testing gmres against SciPy on random input.")
+    allpassed = True
+    for N in np.arange(20, 100, 20):
+        n_krys = [10, 20]
+        A = np.random.rand(N, N)
+        x0 = np.random.rand(N)
+        b = np.random.rand(N)
+        for n_kry in n_krys:
+            passed, err = test_gmres_vs_np(A, b, x0, n_kry=n_kry,
+                                           thresh=thresh, verbose=True,
+                                           maxiter=4)
+            if not passed:
+                print("Failed at N=", N, "n_kry=", n_kry, "by err=", err)
+                allpassed = False
+    return allpassed
 
 
 def test_gmres(A, b, x0, tol=1E-5, n_kry=20, maxiter=None, thresh=1E-7,
@@ -315,16 +409,22 @@ def test_gmres(A, b, x0, tol=1E-5, n_kry=20, maxiter=None, thresh=1E-7,
 def run_tests():
     num_pass = 0
     num_run = 0
-    num_pass += do_test_matrix_matvec(thresh=1E-5)
+    #  num_pass += do_test_matrix_matvec(thresh=1E-5)
+    #  num_run += 1
+    #  num_pass += do_arnoldi_tests_identity(N=3, thresh=1E-5)
+    #  num_run += 1
+    #  num_pass += do_arnoldi_test_fixed(N=3, n_kry=3)
+    #  num_run += 1
+    #  num_pass += do_arnoldi_vs_numpy_dense(thresh=1E-5)
+    #  num_run += 1
+    #  num_pass += do_test_gs_orthogonalize()
+    #  num_run += 1
+    #  num_pass += do_arnoldi_tests_random_dense_matrices(thresh=1E-5)
+    #  num_run += 1
+    num_pass += do_test_gmres_simple()
     num_run += 1
-    num_pass += do_arnoldi_tests_identity(N=3, thresh=1E-5)
+    num_pass += do_test_gmres_vs_np()
     num_run += 1
-    num_pass += do_arnoldi_test_fixed(N=3, n_kry=3)
-    num_run += 1
-    num_pass += do_arnoldi_vs_numpy_dense(thresh=1E-5)
-    num_run += 1 
-    num_pass += do_arnoldi_tests_random_dense_matrices(thresh=1E-5)
-    num_run += 1 
     print("****************************************************************")
     print(num_pass, "tests passed out of", num_run,".")
     print("****************************************************************")

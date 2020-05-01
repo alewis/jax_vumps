@@ -2,6 +2,7 @@
 from functools import partial
 from typing import Sequence, Callable
 import numpy as np
+import sys
 
 import jax
 import jax.numpy as jnp
@@ -10,9 +11,11 @@ from jax.ops import index, index_update, index_add
 import jax_vumps.arnoldi as arnoldi
 
 
-def gmres_m(A_mv, A_args, b, x0, m_krylov, maxiter=None, tol=1E-6,
-            rtol=1E-4):
+def gmres_m(A_mv, A_args, b, x0, n_kry=20, max_restarts=None, tol=1E-6,
+            M=None):
     """
+    Solve A x = b for x using the restarted GMRES method.
+
     Given a linear mapping with (n x n) matrix representation
         A = A_mv(*A_args)
     gmres_m solves
@@ -25,24 +28,26 @@ def gmres_m(A_mv, A_args, b, x0, m_krylov, maxiter=None, tol=1E-6,
     A_mv (Callable)       : Function (*A_args v) that computes A*v.
     b  (array-like, (n,)) : The vector b in Ax = b.
     x0 (array-like, (n,)) : Initial guess vector.
-    m_krylov (int)        : The size of the Krylov subspace computed at each
-                            restart. This controls the expense as follows: each
-                            restart will involve m_krylov calls
-                            to matvec, followed by Gram-Schmidt
-                            orthogonalization of a matrix with one column added
-                            per call.
-    maxiter(int,default n): The algorithm will terminate after this many
-                            restarts even if unconverged.
-    atol, rtol (float)    : Absolute and relative error thresholds that
-                            dictate termination.
+    n_kry (int)        : The size of the Krylov subspace computed at each
+                         restart. A_mv will be called n_kry times at each
+                         restart. The complexity of intermediate operations
+                         besides n_kry is cubic with n_kry in this
+                         implementation cubic in n_kry.
+
+                         n_kry is set to x0.size in case it is larger than
+                         this.
+    max_restarts(int,default 10000): The algorithm will terminate after this many
+                                 restarts even if unconverged.
+    tol                 : Error threshold.
+    M : Inverse of the preconditioner of A. Presently unsupported.
 
 
     RETURNS
     -------
-    (x, err)
-    x (array-like, (n,))  : The approximate solution.
-    err (float)           : Latest estimate of the approximation quality.
-
+    x (array, (n,)): The approximate solution.
+    beta (float)   : Error estimate.
+    n_iter (int)   : The number of iterations that were run.
+    converged (bool) : True if convergence was achieved.
 
 
     DETAILED EXPLANATION
@@ -55,7 +60,7 @@ def gmres_m(A_mv, A_args, b, x0, m_krylov, maxiter=None, tol=1E-6,
     particularly for matrices with degenerate spectra.
 
     Suppose the columns of V_k form an orthonormal basis of the
-    order-m_krylov Krylov space of (A, x0). This matrix can be formed by
+    order-n_kry Krylov space of (A, x0). This matrix can be formed by
     the "Arnoldi" method of repeatedly computing v_k = A v_{k-1} and then
     performing Gram-Schmidt orthonormalization upon v_k and its ancestors.
     This method also produces an upper-Hessenberg matrix H satisfying
@@ -67,46 +72,94 @@ def gmres_m(A_mv, A_args, b, x0, m_krylov, maxiter=None, tol=1E-6,
     Now the solution to (1) may be phrased as that of minimizing the residual,
          x = min_z || r - Az || (2)
     We know that x lies within the Krylov space of (A, b), which we approximate
-    by that of (A, x_0) truncated to m_krylov. Under the restriction that z
+    by that of (A, x_0) truncated to n_kry. Under the restriction that z
     lies within this space, and writing the solution x_k = x_0 + V_k y,
     minimizing (2) reduces to minimizing
           J(y) = || beta e_1 - H_k y || (3)
     with beta = ||r_0||.
     """
-    if maxiter is None or maxiter > b.size:
-        maxiter = b.size
-    r = b - A_mv(*A_args, x0)
-    print("r = ", r)
+    if M is not None:
+        raise NotImplementedError("Preconditioning is unsupported.")
+
+    if max_restarts is None:
+        max_restarts = 100
+    elif max_restarts < 0:
+        raise ValueError("Invalid max_restarts = ", max_restarts)
+
+    if n_kry < 1:
+        raise ValueError("Invalid n_kry = ", n_kry)
+    elif n_kry > x0.size:
+        n_kry = x0.size
+
+    x = x0
+    r, beta = gmres_residual(A_mv, A_args, b, x)
+    converged = False
+    n_iter = 0
+    for n in range(max_restarts):
+        x = gmres_work(A_mv, A_args, n_kry, x, r, beta)
+        r, beta = gmres_residual(A_mv, A_args, b, x)
+        beta_rel = beta / jnp.linalg.norm(b)
+        n_iter = n + 1
+        if beta < tol or beta_rel < tol:
+            converged = True
+            break
+    return x, beta_rel, n_iter, converged
+
+
+@partial(jax.jit, static_argnums=(3,))
+def gmres(A_mv, A_args, b, n_kry, x0):
+    """
+    Solve A x = b for x by the unrestarted GMRES method.
+    """
+    r, beta = gmres_residual(A_mv, A_args, b, x0)
+    x = gmres_work(A_mv, A_args, n_kry, x0, r, beta)
+    return x
+
+
+def gmres_residual(A_mv, A_args, b, x):
+    """
+    Computes the residual vector r and norm beta which is minimized by
+    GMRES, given A, b,  and a trial solution x.
+    """
+    r = b - A_mv(*A_args, x)
     beta = jnp.linalg.norm(r)
-    for _ in range(maxiter - 1):
-        print("beta: ", beta)
-        x = _gmres_iter(A_mv, A_args, m_krylov, r, beta)
-        print("x = ", x)
-        r = b - A_mv(*A_args, x)
-        beta = jnp.linalg.norm(r)
-        print("****************")
-    print("beta: ", beta)
-
-    x = _gmres_iter(A_mv, A_args, m_krylov, r, beta)
-    return x
+    return r, beta
 
 
-def _gmres_iter(A_mv, A_args, m_krylov, r, beta):
-    r = r / beta
-    K, H = arnoldi.arnoldi_krylov(A_mv, A_args, m_krylov, r)
-    Q, R = jnp.linalg.qr(H, mode="complete")
-    print("Q: ", Q)
-    print("R: ", R)
+@partial(jax.jit, static_argnums=(2,))
+def gmres_work(A_mv, A_args, n_kry, x, r, beta):
+    """
+    The main loop body of GMRES. Given A, a trial solution x, the residual r,
+    and the size n_kry of the Krylov space, iterates x towards the solution,
+    by finding y in x = x_0 + V y minimizing ||beta - H y||.
+    """
+    v = r / beta
+    Vk_1, Htilde = arnoldi.arnoldi_krylov(A_mv, A_args, n_kry, v)
+    Q, Rtilde = jnp.linalg.qr(Htilde, mode="complete")
+    Q = Q.T.conj()
+    R = Rtilde[:-1, :]
     g = beta*jnp.ravel(Q[:-1, 0])
-    print("g = ", g)
-    # print(R[:-1, :-1])
-    y = jax.scipy.linalg.solve_triangular(R[:-1, :], g)
-    # print("y = ", y)
-    # print("K = ", K)
-    x = K[:, :y.size] @ y + r
+    y = jax.scipy.linalg.solve_triangular(R, g)
+    update = Vk_1[:, :-1] @ y
+    x = x + update
     return x
 
+def full_orthog(A_mv, A_args, b, n_kry, x0):
+    """
+    Solve A x = b for x using the full orthogonalization method.
+    """
+    r = b - A_mv(*A_args, x0)
+    beta = jnp.linalg.norm(r)
+    v = r / beta
+    e1 = np.zeros(n_kry)
+    e1[0] = 1
+    e1 = jnp.array(e1)
 
-def matrix_matvec(A, x):
-    return A@x
+    Vtilde, Htilde = arnoldi.arnoldi_krylov(A_mv, A_args, n_kry, v)
+    H = Htilde[:-1, :]
+    V = Vtilde[:, :-1]
+    Hinv = jnp.linalg.inv(H)
+    y_k = beta * (Hinv @  e1)
+    x = x0 + V @ y_k
+    return x
 

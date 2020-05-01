@@ -8,10 +8,10 @@ from jax.ops import index, index_update
 
 
 @partial(jax.jit, static_argnums=(2,))
-def arnoldi_krylov_jit(A_mv: Callable,
-                       A_args: Sequence,
-                       n_kry: int,
-                       v0):
+def arnoldi_krylov(A_mv: Callable,
+                   A_args: Sequence,
+                   n_kry: int,
+                   v0):
     """
     Given an (m x m) matrix A, a vector v0, and a dimension n_kry, finds
     an orthonormal basis on the order-(n_kry+1) Krylov space defined by
@@ -62,11 +62,13 @@ def arnoldi_krylov_jit(A_mv: Callable,
     v = v0 / jnp.linalg.norm(v0)  # Normalize the input vector.
     V = index_update(V, index[:, 0], v)  # Use it as the first Krylov vector.
 
+    #@jax.jit
     def this_arnoldi_scan_function(carry, x):
         return _arnoldi_scan_function(carry, x, A_mv, A_args)
     carry, stack = jax.lax.scan(this_arnoldi_scan_function,
                                 (V, v),
-                                jnp.arange(n_kry))
+                                xs=jnp.arange(n_kry))
+                                # jnp.arange(n_kry))
     V, _ = carry
     H, h_off = stack
     H = H.T + jnp.diag(h_off, -1)[:n_kry+1, :n_kry]
@@ -100,6 +102,25 @@ def _arnoldi_scan_function(carry, k, A_mv, A_args):
 
 
 @jax.jit
+def _gs_step(r, v_i):
+    """
+    Performs one iteration of the stabilized Gram-Schmidt procedure, with
+    r to be orthonormalized against {v} = {v_0, v_1, ...}.
+    """
+    # h_i = v_i @ r_i if j<=k, else 0.
+    #  h_i = jax.lax.cond(j <= k,
+    #                     (v_i, r), lambda x: jnp.vdot(x[0], x[1]),
+    #                     v_i, lambda x: 0.*v_i[0])
+    #  r_i = jax.lax.cond(j <= k,
+    #                     (r, h_i, v_i), lambda x: r - h_i * v_i,
+    #                     r, lambda x: x)
+    #  print(h_i.shape)
+    h_i = jnp.vdot(v_i, r)
+    r_i = r - h_i * v_i
+    return r_i, h_i
+
+
+@jax.jit
 def gs_orthogonalize(V, r):
     """
     Orthonormalize r against the vectors in the columns of V using
@@ -112,7 +133,7 @@ def gs_orthogonalize(V, r):
     ----------
     V, array-like (N, n): Columns are the basis vectors to be orthonormalized
                           against. They are assumed already orthonormal.
-    r, array-like (N,)  : The vector to orthonormalized against V.
+    r, array-like (N,)  : The vector to orthonormalize against V.
 
 
     RETURNS
@@ -123,20 +144,52 @@ def gs_orthogonalize(V, r):
     hs, array-like (n,)  : Projections of the {v} onto successive r_new during
                            the procedure.
     """
-    hs = jnp.zeros(r.size, r.dtype)
-    r, hs = jax.lax.scan(_gs_step, r, V.T)
-    return (r, hs)
+    r_new, hs = jax.lax.scan(_gs_step, r, xs=V.T)
+    return (r_new, hs)
 
 
-@jax.jit
-def _gs_step(r, v_i):
+def arnoldi_krylov_jax(A_mv, A_args, n_kry, v0):
     """
-    Performs one iteration of the stabilized Gram-Schmidt procedure, with
-    r to be orthonormalized against {v} = {v_0, v_1, ...}.
+    This is the Wikipedia implementation of the Arnoldi process, for testing.
+    It has been slightly modified to make A a linear operator and to
+    account for varying dtypes.
+
+    Computes a basis of the (n + 1)-Krylov subspace of A: the space
+    spanned by {b, Ab, ..., A^n b}.
+
+    Arguments
+      A: m × m LinearOperator
+      b: initial vector (length m)
+      n: dimension of Krylov subspace, must be >= 1
+
+    Returns
+      Q: m x (n + 1) array, the columns are an orthonormal basis of the
+        Krylov subspace.
+      h: (n + 1) x n array, A on basis Q. It is upper Hessenberg. 
     """
-    h_i = jnp.vdot(v_i, r)
-    r_i = r - h_i * v_i
-    return r_i, h_i
+    m = v0.size
+    dtype = v0.dtype
+    h = jnp.zeros((n_kry + 1, n_kry), dtype=dtype)
+    Q = jnp.zeros((m, n_kry + 1), dtype=dtype)
+    q = v0 / jnp.linalg.norm(v0)  # Normalize the input vector
+    Q = index_update(Q, index[:, 0], q)
+
+    for k in range(n_kry):
+        v = A_mv(*A_args, q)
+        v, hs = gs_orthogonalize(Q, v)
+        h = index_update(h, index[:, k], hs)
+        #  for j in range(k + 1): # Subtract the projections on previous vectors
+        #      vj = Q[:, j]
+        #      h = index_update(h, index[j, k], jnp.vdot(vj, v))
+        #      v = v - h[j, k] * vj
+
+        h = index_update(h, index[k + 1, k], jnp.linalg.norm(v))
+        q = jax.lax.cond(h[k + 1, k] > 1E-7,
+                         (v, h[k + 1, k]), lambda x: x[0] / x[1],
+                         q, lambda x: 0.*q,
+                         )
+        Q = index_update(Q, index[:, k + 1], q)
+    return Q, h
 
 
 def arnoldi_krylov_numpy(A, b, n: int):

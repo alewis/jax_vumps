@@ -2,27 +2,61 @@ import numpy as np
 
 import jax.numpy as jnp
 
-import jax_dmrg.operations as ops
-import jax_dmrg.utils as utils
-import jax_dmrg.lanczos as lz
-import jax_dmrg.dmrg as dmrg
-import jax_dmrg.benchmark as benchmark
-import jax_dmrg.map 
+import jax_vumps.operations as ops
+import jax_vumps.utils as utils
+import jax_vumps.arnoldi as arn
+import jax_vumps.benchmark as benchmark
 
 
+def time_arnoldi_matrix(Ns, n_kry, fname="./arnoldi_mat_timings.txt"):
+    ntries = 10
+    ts = np.zeros((2, len(Ns)))
+    funcnames = ["Jax", "NumPy"]
 
-def time_tridiagonalize(chis, n_krylov, fname="./tridiag_timings.txt"):
+    for Nidx, N in enumerate(Ns):
+        print("**************************************************************")
+        print("Timing N= ", N)
+
+        npA = np.random.rand(N, N).astype(np.float32)
+        np_op = ops.numpy_matrix_linop(npA)
+        jaxA = jnp.array(npA)
+        jax_args = [jaxA, ]
+        v0 = np.random.rand(N).astype(np.float32)
+        v0j = jnp.array(v0)
+
+        def jax_arnoldi():
+            return arn.arnoldi_krylov(ops.matrix_matvec, jax_args, n_kry, v0j)
+
+        def np_arnoldi():
+            return arn.arnoldi_krylov_numpy(np_op, v0, n_kry)
+
+        for idx, f in enumerate([jax_arnoldi, np_arnoldi]):
+            print("Function:", funcnames[idx])
+            dts = np.zeros(ntries)
+            for i in range(ntries):
+                t0 = benchmark.tick()
+                out = f()
+                if funcnames[idx] == "Jax":
+                    dts[i] = benchmark.tock(t0, out[0])
+                else:
+                    dts[i] = benchmark.tock(t0)
+            ts[idx, Nidx] = np.min(dts)
+            print("t=", ts[idx, Nidx])
+
+    return ts
+
+def time_arnoldi(chis, n_krylov, fname="./arnoldi_timings.txt"):
     d = 2
     chiM = 4
-    ntries = 10
+    ntries = 20
     ts = np.zeros((2, len(chis)))
-    np_mv = jax_dmrg.map.np_matvec
+    #np_op = ops.numpy_matrix_linop(
     funcnames = ["Jax", "NumPy"]
 
     for chidx, chi in enumerate(chis):
         print("**************************************************************")
         print("Timing chi= ", chi)
-        
+
         npmps = np.random.rand(chi, d, chi).astype(np.float32)
         npmps /= np.linalg.norm(npmps)
         npL = np.random.rand(chiM, chi, chi).astype(np.float32)
@@ -66,7 +100,8 @@ def time_tridiagonalize(chis, n_krylov, fname="./tridiag_timings.txt"):
                     dts[i] = benchmark.tock(t0)
             outKs.append(out[0])
             outTs.append(out[1])
-            ts[idx, chidx] = np.amin(dts)
+            #ts[idx, chidx] = np.amin(dts)
+            ts[idx, chidx] = np.median(dts)
             print("t=", ts[idx, chidx])
 
         errK = jnp.linalg.norm(jnp.abs(outKs[0] - outKs[1]))/outKs[0].size
@@ -155,7 +190,6 @@ def xx_ground_state(N, maxchi, N_sweeps, ncv=20, lz_tol=1E-5, lz_maxiter=50):
     """
     Find the ground state of the quantum XX model with single-site DMRG.
     """
-    
 
     mpo_chain = [ops.xx_mpo() for _ in range(N)]
     lz_params = lz.lz_params(ncv=ncv, lz_tol=lz_tol, lz_maxiter=lz_maxiter)
