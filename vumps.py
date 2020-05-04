@@ -6,7 +6,6 @@ import numpy as np
 import jax_vumps.writer.Writer as Writer
 import jax_vumps.contractions as ct
 import jax_vumps.numpy_impl.observables as obs
-import jax_vumps.numpy_impl.utils as utils
 
 import jax_vumps.jax_backend.environment as jax_environment
 import jax_vumps.np_backend.environment as np_environment
@@ -128,8 +127,8 @@ def vumps_initialization(d: int, chi: int, dtype=np.float32):
                          to the left and right environment Hamiltonians.
                          Both are chi x chi.
     """
-    A_1, A_2 = utils.random_tensors([(d, chi, chi), (d, chi, chi)],
-                                    dtype=dtype)
+    A_1, A_2 = mps_linalg.random_tensors([(d, chi, chi), (d, chi, chi)],
+                                         dtype=dtype)
 
     A_L, C_1 = mps_linalg.qrpos(A_1)
     C_2, A_R = mps_linalg.lqpos(A_2)
@@ -170,7 +169,7 @@ def _diagnostics(oldmpslist, Eold, H, iter_data):
     return dE, E, norm, B2
 
 
-def krylov_params(n_krylov=40, max_restarts=10, tol_coef=0.1):
+def krylov_params(n_krylov=40, max_restarts=10, tol_coef=0.1, use_jax=False):
     """
     Bundles parameters for the Lanczos eigensolver. These control
     the expense of finding the left and right environment tensors, and of
@@ -185,7 +184,7 @@ def krylov_params(n_krylov=40, max_restarts=10, tol_coef=0.1):
                       convergence threshold of the eigensolve.
     """
     return {"n_krylov: ": n_krylov, "max_restarts": max_restarts,
-            "tol_coef: ": tol_coef}
+            "tol_coef: ": tol_coef, "use_jax": use_jax}
 
 
 def solver_params(n_krylov=40, max_restarts=10, tol_coef=0.1, use_jax=False):
