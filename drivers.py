@@ -4,9 +4,8 @@ Interface functions for VUMPS.
 import sys
 import numpy as np
 
-import jax_vumps.matrices as mat
-import jax_vumps.vumps as vumps
-import jax_vumps.numpy_vumps.vumps as np_vumps
+import jax_vumps.numpy_impl.matrices as mat
+import jax_vumps.numpy_impl.vumps as vumps
 
 
 def runvumps(H, path: str, bond_dimension: int, gradient_tol: float,

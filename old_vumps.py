@@ -14,55 +14,6 @@ import tensornetwork as tn
 import jax_vumps.writer.Writer as Writer
 
 
-##########################################################################
-# Functions to handle output.
-##########################################################################
-def ostr(string):
-    """
-    Truncates to four decimal places.
-    """
-    return '{:1.4e}'.format(string)
-
-
-def output(writer, Niter, delta, E, dE, norm, B2):
-    """
-    Does the actual outputting.
-    """
-    outstr = "N = " + str(Niter) + "| |B| = " + ostr(delta)
-    outstr += "| E = " + '{0:1.16f}'.format(E)
-    outstr += "| dE = " + ostr(np.abs(dE))
-    outstr += "| |B2| = " + ostr(B2)
-    writer.write(outstr)
-
-    this_output = [Niter, E, dE, delta, B2, norm]
-    writer.data_write(this_output)
-
-
-def make_writer(outdir=None):
-    """
-    Initialize the Writer. Creates a directory in the appropriate place, and
-    an output file with headers hardcoded here as 'headers'. The Writer,
-    defined in writer.py, remembers the directory and will append to this
-    file as the simulation proceeds. It can also be used to pickle data,
-    notably the final wavefunction.
-
-    PARAMETERS
-    ----------
-    outdir (string): Path to the directory where output is to be saved. This
-                     directory will be created if it does not yet exist.
-                     Otherwise any contents with filename collisions during
-                     the simulation will be overwritten.
-
-    OUTPUT
-    ------
-    writer (writer.Writer): The Writer.
-    """
-
-    headers = ["N", "E", "dE", "|B|", "|B2|", "<psi>"]
-    if outdir is None:
-        return None
-    writer = Writer(outdir, headers=headers)
-    return writer
 
 
 ##########################################################################
@@ -231,21 +182,8 @@ def regauge(mpslist, tol=1E-13, leftonly=False):
     return mpslist, fpoints
 
 
-def overlap(list1, list2, X, Y):
-    ans = ct.chainnorm(list1, Bs=list2)
-    return ans
 
 
-def vumps_expand(thatmpslist, H, chi, delta, params, thatAC=None):
-    mpslist = maximize_overlap(thatmpslist, chi, thatAC=thatAC,
-            tol=delta/10)
-    A_C = ct.rightmult(mpslist[0], mpslist[1])
-    TMtol = params["TM_tol"]
-    if params["adaptive_tm_tol"]:
-        TMtol *= delta
-    fpoints = vumps_tm_eigs(mpslist, params, tol=TMtol)
-    H_env = vumps_environment(mpslist, fpoints, H, delta, params)
-    return [mpslist, A_C, fpoints, H_env]
 
 
 def mixed_canonical_old(A, lam=None):
@@ -862,18 +800,6 @@ def Hc_dense_eigs(A_L, A_R, Hlist, hermitian=True):
 ##########################################################################
 # Loss functions.
 ##########################################################################
-def vumps_loss(A_L, A_C):
-    """
-    Norm of MPS gradient: see Appendix 4.
-    """
-    A_L_mat = ct.fuse_left(A_L)
-    A_L_dag = np.conj(A_L_mat.T)
-    N_L = sp.linalg.null_space(A_L_dag)
-    N_L_dag = np.conj(N_L.T)
-    A_C_mat = ct.fuse_left(A_C)
-    B = np.dot(N_L_dag, A_C_mat)
-    Bnorm = np.linalg.norm(B)
-    return Bnorm
 
 
 def compute_eL(A_L, C, A_C):
@@ -1138,23 +1064,6 @@ def default_observables():
     return observables
 
 
-def vumps_initial_tensor(d, chi, params, dtype=jnp.float32):
-    """
-    Generate a random uMPS in mixed canonical forms, along with the left
-    dominant eV L of A_L and right dominant eV R of A_R.
-    """
-    Ainit = utils.random_tensors([(d, chi, chi)], dtype=dtype)
-    mpslist = mixed_canonical(Ainit)
-    A_L, C, A_R = mpslist
-
-    Cd = np.conj(C.T)
-    rL = np.dot(Cd, C)
-    lR = np.dot(C, Cd)
-    lR /= np.trace(lR)
-    rL /= np.trace(rL)
-    A_C = ct.rightmult(A_L, C)
-    fpoints = [rL, lR]
-    return (mpslist, A_C, fpoints)
 
 
 def vumps(H, params):

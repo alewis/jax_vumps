@@ -1,12 +1,12 @@
 import copy
 
 import numpy as np
-#import scipy as sp
+import scipy as sp
 
-#import jax
+import jax
 import jax.numpy as jnp
 
-#import tensornetwork as tn
+import tensornetwork as tn
 
 import jax_vumps.numpy_impl.writer.Writer as Writer
 import jax_vumps.numpy_impl.contractions as ct
@@ -80,8 +80,8 @@ def vumps_approximate_tm_eigs(C):
     Returns the approximate transfer matrix dominant eigenvectors,
     rL ~ C^\dag C, and lR ~ C C\dag = rL\dag, both trace-normalized.
     """
-    rL = np.dot(np.conj(C.T), C)
-    rL /= np.trace(rL)
+    rL = (C.T.conj()) @ C
+    rL /= mps_linalg.trace(rL)
     lR = rL.T.conj()
     return (rL, lR)
 
@@ -126,11 +126,12 @@ def vumps_iteration(iter_data, delta, H, heff_krylov_params, tm_krylov_params,
     One main iteration of VUMPS.
     """
     mpslist, A_C, fpoints, H_env = iter_data
-    mpslist, A_C, delta = jax_vumps.numpy_impl.heff.apply_gradient(iter_data, delta, H,
-                                                        heff_krylov_params)
+    mpslist, A_C, delta = jax_vumps..heff.apply_gradient(iter_data, delta, H,
+                                                         heff_krylov_params)
     fpoints = vumps_approximate_tm_eigs(mpslist[1])
-    H_env = jax_vumps.numpy_impl.environment.solve(mpslist, delta, fpoints, H,
-                                        env_solver_params, H_env=H_env)
+    H_env = jax_vumps.environment.solve(mpslist, delta, fpoints, H,
+                                        env_solver_params, 
+                                        H_env=H_env)
     return (mpslist, A_C, delta, fpoints, H_env)
 
 
