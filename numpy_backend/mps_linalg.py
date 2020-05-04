@@ -1,12 +1,11 @@
 """
-Functions that operate upon MPS tensors as if they were matrices.
+Functions that operate upon MPS tensors as if they were matrices. 
+These functions are not necessarily backend-agnostic.
 """
 import numpy as np
 import scipy as sp
-import jax
-import jax.numpy as jnp
 
-import jax_vumps.numpy_impl.contractions as ct
+import jax_vumps.contractions as ct
 
 
 def fuse_left(A):
@@ -48,13 +47,14 @@ def unfuse_right(A, shp):
 def norm(A):
     return np.norm(A)
 
+
 def trace(A):
     return np.trace(A)
+
 
 ###############################################################################
 # QR
 ###############################################################################
-@jax.jit
 def qrpos(mps):
     """
     Reshapes the (d, chiL, chiR) MPS tensor into a (d*chiL, chiR) matrix,
@@ -79,7 +79,7 @@ def qrpos(mps):
     d, chiL, chiR = mps.shape
     mps_mat = fuse_left(mps)
     Q, R = np.linalg.qr(mps_mat)
-    phases = np.sign(jnp.diag(R))
+    phases = np.sign(np.diag(R))
     Q = Q*phases
     R = phases.conj()[:, None] * R
     R = R / norm(R)
@@ -87,7 +87,6 @@ def qrpos(mps):
     return (mps_L, R)
 
 
-@jax.jit
 def lqpos(mps):
     """
     Reshapes the (d, chiL, chiR) MPS tensor into a (chiL, d*chiR) matrix,
@@ -110,9 +109,9 @@ def lqpos(mps):
     """
     d, chiL, chiR = mps.shape
     mps_mat = fuse_right(mps)
-    Qdag, Ldag = jnp.linalg.qr(mps_mat)
+    Qdag, Ldag = np.linalg.qr(mps_mat)
     Q = Qdag.T.conj()
-    L = Ldag.Tconj()
+    L = Ldag.T.conj()
     phases = np.sign(np.diag(L))
     L = L*phases
     L = L / norm(L)

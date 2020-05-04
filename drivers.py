@@ -2,14 +2,15 @@
 Interface functions for VUMPS.
 """
 import sys
+import os
 import numpy as np
 
-import jax_vumps.numpy_impl.matrices as mat
-import jax_vumps.numpy_impl.vumps as vumps
+import jax_vumps.matrices as mat
+import jax_vumps.vumps as vumps
 
 
 def runvumps(H, path: str, bond_dimension: int, gradient_tol: float,
-             maxiter: int, jax=True):
+             maxiter: int, jax_linalg=True):
     """
     Performs a vumps simulation of some Hamiltonian H.
 
@@ -27,15 +28,17 @@ def runvumps(H, path: str, bond_dimension: int, gradient_tol: float,
     """
     here = sys.path[0]
     fullpath = here + path
+
     vumps_params = vumps.vumps_params(path=fullpath,
                                       chi=bond_dimension,
                                       vumps_tol=gradient_tol,
                                       maxiter=maxiter
                                       )
-    if jax:
-        out = vumps.vumps(H, params=vumps_params)
+    if jax_linalg:
+        os.environ["LINALG_BACKEND"] == "Jax"
     else:
-        out = np_vumps.vumps(H, params=vumps_params)
+        os.environ["LINALG_BACKEND"] == "NumPy"
+    out = vumps.vumps(H, params=vumps_params)
     return out
 
 

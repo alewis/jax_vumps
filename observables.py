@@ -2,9 +2,13 @@
 These functions make computations upon an MPS based upon its interpretation
 as a quantum state.
 """
-import numpy as np
-import jax_vumps.numpy_impl.mps_linalg as mps_linalg
-import jax_vumps.numpy_impl.contractions as ct
+import os
+import jax_vumps.contractions as ct
+
+if os.environ["LINALG_BACKEND"] == "Jax":
+    import jax_vumps.jax_backend.mps_linalg as mps_linalg
+else:
+    import jax_vumps.numpy_backend.mps_linalg as mps_linalg
 
 
 def B2_variance(oldlist, newlist):
@@ -24,10 +28,10 @@ def B2_variance(oldlist, newlist):
     NL, NR = mps_linalg.mps_null_spaces(oldlist)
     AL, C, AR = newlist
     AC = ct.rightmult(AL, C)
-    L = ct.XopL(AC, B=np.conj(NL))
-    R = ct.XopR(AR, B=np.conj(NR))
+    L = ct.XopL(AC, NL)
+    R = ct.XopR(AR, NR)
     B2_tensor = L @ R.T
-    B2 = np.linalg.norm(B2_tensor)
+    B2 = mps_linalg.norm(B2_tensor)
     return B2
 
 
@@ -46,5 +50,10 @@ def twositeexpect(mpslist, H):
     return expect
 
 
-def onesiteexpectL(mpslist, H):
-    A_Lp = 
+def norm(mpslist):
+    A_L, C, A_R = mpslist
+    A_CR = ct.leftmult(C, A_R)
+    rho = ct.rholoc(A_L, A_CR)
+    d = rho.shape[0]
+    the_norm = mps_linalg.trace(rho.reshape(d*d, d*d))
+    return the_norm.real

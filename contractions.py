@@ -42,7 +42,10 @@ def leftmult(lam, gam):
             |
     where lam is stored 1--lam--2
     """
-    return np.dot(lam, gam)
+    out = tn.ncon([lam, gam],
+                  [-2, 1],
+                  [1, -1, -3])
+    return out
 
 
 def rightmult(gam, lam):
@@ -52,7 +55,10 @@ def rightmult(gam, lam):
        1
        |
     """
-    return np.dot(gam, lam)
+    out = tn.ncon([gam, lam],
+                  [-1, -2, 1],
+                  [1, -3])
+    return out
 
 
 def gauge_transform(gl, A, gr):
@@ -69,35 +75,35 @@ def gauge_transform(gl, A, gr):
 ###############################################################################
 
 
-def leftchain(As):
-    """
-      |---A1---A2---...-AN-2
-      |   |    |         |
-      |   |    |   ...   |
-      |   |    |         |
-      |---B1---B2---...-BN-1
-      (note: AN and BN will be contracted into a single matrix)
+#  def leftchain(As):
+#      """
+#        |---A1---A2---...-AN-2
+#        |   |    |         |
+#        |   |    |   ...   |
+#        |   |    |         |
+#        |---B1---B2---...-BN-1
+#        (note: AN and BN will be contracted into a single matrix)
 
-      As is a list of MPS tensors.
-    """
-    Bs = [jnp.conj(A) for A in As]
-    for A, B in zip(As, Bs):
-        X = XopL(A, B=B, X=X)
-    return X
+#        As is a list of MPS tensors.
+#      """
+#      Bs = [A.conj() for A in As]
+#      for A, B in zip(As, Bs):
+#          X = XopL(A, B=B, X=X)
+#      return X
 
 
-def chainnorm(As, Bs=None, X=None, Y=None):
-    """
-      |---A1---A2---...-AN---
-      |   |    |        |   |
-      X   |    |   ...  |   Y
-      |   |    |        |   |
-      |---B1---B2---...-BN---
-    """
-    X = leftchain(As, Bs=Bs, X=X)
-    if Y is not None:
-        X = np.dot(X, Y.T)
-    return np.trace(X)
+#  def chainnorm(As, Bs=None, X=None, Y=None):
+#      """
+#        |---A1---A2---...-AN---
+#        |   |    |        |   |
+#        X   |    |   ...  |   Y
+#        |   |    |        |   |
+#        |---B1---B2---...-BN---
+#      """
+#      X = leftchain(As, Bs=Bs, X=X)
+#      if Y is not None:
+#          X = np.dot(X, Y.T)
+#      return np.trace(X)
 
 
 def proj(A, B):
@@ -119,37 +125,31 @@ def proj(A, B):
 # *****************************************************************************
 # Single site to open legs.
 # *****************************************************************************
-def XopL(A, O=None, X=None, B=None):
+def XL(A, X):
     """
       |---A---2
       |   |
-      X   O
+      X   |
       |   |
-      |---B---1
+      |---A---1
     """
-    if B is None:
-        B = np.conj(A)
+    B = A.conj()
     A = leftmult(X, A)
-    if O is not None:
-        B = Bop(O, B)
     idx = [(2, 1, -2),
            (2, 1, -1)]
     return tn.ncon([A, B], idx)
 
 
-def XopR(A, O=None, X=None, B=None):
+def XR(A, X):
     """
       2---A---|
           |   |
-          O   X
+          |   X
           |   |
-      1---B---|
+      1---A---|
     """
-    if B is None:
-        B = np.conj(A)
+    B = A.conj()
     B = rightmult(B, X)
-    if O is not None:
-        B = Bop(O, B)
     idx = [(2, -2, 1),
            (2, -1, 1)]
     return tn.ncon([A, B], idx)
@@ -214,4 +214,65 @@ def tmdense(A):
       |
     1-A-3
     """
-    return np.einsum("ibd, iac", A, A.conj())
+    idxs = [[1, -2, -4], [1, -1, -3]]
+    out = tn.ncon([A. A.conj()], idxs)
+    return out
+
+
+##############################################################################
+# VUMPS environment
+##############################################################################
+def compute_hL(A_L, htilde):
+    """
+    --A_L--A_L--
+    |  |____|
+    |  | h  |
+    |  |    |
+    |-A_L*-A_L*-
+    """
+    A_L_d = A_L.conj()
+    to_contract = [A_L, A_L, A_L_d, A_L_d, htilde]
+    idxs = [(2, 4, 1),
+            (3, 1, -2),
+            (5, 4, 7),
+            (6, 7, -1),
+            (5, 6, 2, 3)]
+    h_L = tn.ncon(to_contract, idxs)
+    return h_L
+
+
+#  def compute_hLgen(A_L1, A_L2, A_L3, A_L4, htilde):
+#      """
+#      --A_L1--A_L2--
+#      |  |____|
+#      |  | h  |
+#      |  |    |
+#      |-A_L3-A_L4-
+#      """
+#      to_contract = [A_L1, A_L2, A_L3, A_L4, htilde]
+#      idxs = [(2, 4, 1),
+#              (3, 1, -2),
+#              (5, 4, 7),
+#              (6, 7, -1),
+#              (5, 6, 2, 3)]
+#      h_L = tn.ncon(to_contract, idxs)
+#      return h_L
+
+
+def compute_hR(A_R, htilde):
+    """
+     --A_R--A_R--
+        |____|  |
+        | h  |  |
+        |    |  |
+     --A_R*-A_R*-
+    """
+    A_R_d = A_R.conj()
+    to_contract = [A_R, A_R, A_R_d, A_R_d, htilde]
+    idxs = [(2, -2, 1),
+            (3, 1, 4),
+            (5, -1, 7),
+            (6, 7, 4),
+            (5, 6, 2, 3)]
+    h_R = tn.ncon(to_contract, idxs)
+    return h_R

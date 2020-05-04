@@ -1,20 +1,23 @@
 import copy
+import os
 
 import numpy as np
-import scipy as sp
 
-import jax
-import jax.numpy as jnp
-
-import tensornetwork as tn
-
-import jax_vumps.numpy_impl.writer.Writer as Writer
-import jax_vumps.numpy_impl.contractions as ct
-import jax_vumps.numpy_impl.mps_linalg as mps_linalg
+import jax_vumps.writer.Writer as Writer
+import jax_vumps.contractions as ct
 import jax_vumps.numpy_impl.observables as obs
 import jax_vumps.numpy_impl.utils as utils
-import jax_vumps.numpy_impl.environment
-import jax_vumps.numpy_impl.heff
+
+import jax_vumps.jax_backend.environment as jax_environment
+import jax_vumps.np_backend.environment as np_environment
+
+import jax_vumps.jax_backend.heff as jax_heff
+import jax_vumps.np_backend.heff as np_heff
+
+if os.environ["LINALG_BACKEND"] == "Jax":
+    import jax_vumps.jax_backend.mps_linalg as mps_linalg
+else:
+    import jax_vumps.numpy_backend.mps_linalg as mps_linalg
 
 
 ##########################################################################
@@ -72,6 +75,23 @@ def make_writer(outdir=None):
 ###############################################################################
 
 
+def solve_environment(mpslist, delta, fpoints, H, env_solver_params,
+                      H_env=None):
+    if H_env is None:
+        H_env = [None, None]
+    lh, rh = H_env  # lowercase means 'from previous iteration'
+
+    A_L, C, A_R = mpslist
+    rL, lR = fpoints
+    if env_solver_params["use_jax"]:
+        LH = jax_environment.solve_for_LH(A_L, H, lR, lh, env_solver_params)
+        RH = jax_environment.solve_for_RH(A_R, H, rL, rh, env_solver_params)
+    else:
+        LH = np_environment.solve_for_LH(A_L, H, lR, lh, env_solver_params)
+        RH = np_environment.solve_for_RH(A_R, H, rL, rh, env_solver_params)
+    H_env = [LH, RH]
+    return H_env
+
 ###############################################################################
 # Main loop and friends.
 ###############################################################################
@@ -86,7 +106,7 @@ def vumps_approximate_tm_eigs(C):
     return (rL, lR)
 
 
-def vumps_initialization(d: int, chi: int, dtype=jnp.float32):
+def vumps_initialization(d: int, chi: int, dtype=np.float32):
     """
     Generate a random uMPS in mixed canonical forms, along with the left
     dominant eV L of A_L and right dominant eV R of A_R.
@@ -120,18 +140,21 @@ def vumps_initialization(d: int, chi: int, dtype=jnp.float32):
     return (mpslist, A_C, fpoints)
 
 
-def vumps_iteration(iter_data, delta, H, heff_krylov_params, tm_krylov_params,
-                    env_solver_params):
+def vumps_iteration(iter_data, delta, H, heff_krylov_params, env_solver_params):
     """
     One main iteration of VUMPS.
     """
     mpslist, A_C, fpoints, H_env = iter_data
-    mpslist, A_C, delta = jax_vumps..heff.apply_gradient(iter_data, delta, H,
-                                                         heff_krylov_params)
+    if heff_krylov_params["use_jax"]:
+        mpslist, A_C, delta = jax_heff.apply_gradient(iter_data, delta, H,
+                                                      heff_krylov_params)
+    else:
+        mpslist, A_C, delta = np_heff.apply_gradient(iter_data, delta, H,
+                                                     heff_krylov_params)
+
     fpoints = vumps_approximate_tm_eigs(mpslist[1])
-    H_env = jax_vumps.environment.solve(mpslist, delta, fpoints, H,
-                                        env_solver_params, 
-                                        H_env=H_env)
+    H_env = solve_environment(mpslist, delta, fpoints, H, env_solver_params,
+                              H_env=H_env)
     return (mpslist, A_C, delta, fpoints, H_env)
 
 
@@ -165,7 +188,7 @@ def krylov_params(n_krylov=40, max_restarts=10, tol_coef=0.1):
             "tol_coef: ": tol_coef}
 
 
-def solver_params(n_krylov=40, max_restarts=10, tol_coef=0.1):
+def solver_params(n_krylov=40, max_restarts=10, tol_coef=0.1, use_jax=False):
     """
     Bundles parameters for the (L)GMRES linear solver. These control
     the expense of finding the left and right environment Hamiltonians.
@@ -180,16 +203,16 @@ def solver_params(n_krylov=40, max_restarts=10, tol_coef=0.1):
                         space construction.
     tol_coef (float): This number times the MPS gradient will set the
                       convergence threshold of the linear solve.
+    use_jax (bool) : Toggles whether the Jax backedn is used.
     """
     return {"n_krylov: ": n_krylov, "max_restarts": max_restarts,
-            "tol_coef: ": tol_coef}
+            "tol_coef: ": tol_coef, "use_jax": use_jax}
 
 
 def vumps(H, chi: int, gradient_tol: float, max_iter: int,
           delta_0=0.1,
           checkpoint_every=500,
           out_directory="./vumps",
-          tm_krylov_params=krylov_params(),
           heff_krylov_params=krylov_params(),
           env_solver_params=solver_params()):
     """
@@ -213,9 +236,7 @@ def vumps(H, chi: int, gradient_tol: float, max_iter: int,
     checkpoint_every (int) : Simulation data is pickled at this periodicity.
     out_directory (string) : Output is saved here. The directory is created
                              if it doesn't exist.
-    tm_krylov_params (dict): Hyperparameters for an eigensolve of the MPS
-                             transfer matrix. Formed by 'krylov_params()'.
-    heff_krylov_params     : Hyperparameters for an eigensolve of certain
+    heff_krylov_params(dict):Hyperparameters for an eigensolve of certain
                              'effective Hamiltonians'. Formed by
                              'krylov_params()'.
     env_solver_params      : Hyperparameters for a linear solve that finds
@@ -237,8 +258,7 @@ def vumps(H, chi: int, gradient_tol: float, max_iter: int,
     mpslist, A_C, fpoints = vumps_initialization(d, chi, H.dtype)
 
     writer.write("VUMPS! VUMPS! VUMPS/VUMPS/VUMPS/VUMPS! VUMPS!")
-    H_env = jax_vumps.numpy_impl.environment.solve(mpslist, fpoints, H, delta,
-                                                   env_solver_params)
+    H_env = solve_environment(mpslist, fpoints, H, delta, env_solver_params)
     E = obs.twositeexpect(mpslist, H)
     writer.write("Initial energy: ", E)
     writer.write("And so it begins...")
@@ -248,7 +268,7 @@ def vumps(H, chi: int, gradient_tol: float, max_iter: int,
         oldlist = copy.deepcopy(mpslist)
         iter_data, delta = vumps_iteration(iter_data, delta, H,
                                            heff_krylov_params,
-                                           tm_krylov_params, env_solver_params)
+                                           env_solver_params)
         dE, E, norm, B2 = _diagnostics(oldlist, Eold, H, iter_data)
         output(writer, Niter, delta, E, dE, norm, B2)
         deltas.append(delta)

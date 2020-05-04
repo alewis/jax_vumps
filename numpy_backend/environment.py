@@ -1,50 +1,11 @@
 import numpy as np
 import scipy as sp
+
 from scipy.sparse.linalg import LinearOperator, lgmres
 
-import jax
-import jax.numpy as jnp
-
 import tensornetwork as tn
-import jax_vumps.numpy_impl.contractions as ct
-import jax_vumps.numpy_impl.mps_linalg as mps_linalg
-
-
-def compute_hL(A_L, htilde):
-    """
-    --A_L--A_L--
-    |  |____|
-    |  | h  |
-    |  |    |
-    |-A_L*-A_L*-
-    """
-    A_L_d = np.conj(A_L)
-    to_contract = [A_L, A_L, A_L_d, A_L_d, htilde]
-    idxs = [(2, 4, 1),
-            (3, 1, -2),
-            (5, 4, 7),
-            (6, 7, -1),
-            (5, 6, 2, 3)]
-    h_L = tn.ncon(to_contract, idxs)
-    return h_L
-
-
-def compute_hLgen(A_L1, A_L2, A_L3, A_L4, htilde):
-    """
-    --A_L1--A_L2--
-    |  |____|
-    |  | h  |
-    |  |    |
-    |-A_L3-A_L4-
-    """
-    to_contract = [A_L1, A_L2, A_L3, A_L4, htilde]
-    idxs = [(2, 4, 1),
-            (3, 1, -2),
-            (5, 4, 7),
-            (6, 7, -1),
-            (5, 6, 2, 3)]
-    h_L = tn.ncon(to_contract, idxs)
-    return h_L
+import jax_vumps.contractions as ct
+#  import jax_vumps.numpy_backend.mps_linalg as mps_linalg
 
 
 def LH_linear_operator(A_L, lR):
@@ -58,7 +19,7 @@ def LH_linear_operator(A_L, lR):
 
     def matvec(v):
         v = v.reshape((chi, chi))
-        Th_v = ct.XopL(A_L, X=v)
+        Th_v = ct.XL(A_L, v)
         vR = ct.proj(v, lR)*Id
         v = v - Th_v + vR
         v = v.flatten()
@@ -110,7 +71,7 @@ def solve_for_LH(A_L, H, lR, params, oldLH=None,
     Find the renormalized left environment Hamiltonian using a sparse
     solver.
     """
-    hL_bare = compute_hL(A_L, H)
+    hL_bare = ct.compute_hL(A_L, H)
     hL_div = ct.proj(hL_bare, lR)*np.eye(hL_bare.shape[0])
     hL = hL_bare - hL_div
     chi = hL.shape[0]
@@ -129,23 +90,6 @@ def solve_for_LH(A_L, H, lR, params, oldLH=None,
     return LH
 
 
-def compute_hR(A_R, htilde):
-    """
-     --A_R--A_R--
-        |____|  |
-        | h  |  |
-        |    |  |
-     --A_R*-A_R*-
-    """
-    A_R_d = np.conj(A_R)
-    to_contract = [A_R, A_R, A_R_d, A_R_d, htilde]
-    idxs = [(2, -2, 1),
-            (3, 1, 4),
-            (5, -1, 7),
-            (6, 7, 4),
-            (5, 6, 2, 3)]
-    h_R = tn.ncon(to_contract, idxs)
-    return h_R
 
 
 def RH_linear_operator(A_R, rL):
@@ -159,7 +103,7 @@ def RH_linear_operator(A_R, rL):
 
     def matvec(v):
         v = v.reshape((chi, chi))
-        Th_v = ct.XopR(A_R, X=v)
+        Th_v = ct.XR(A_R, v)
         Lv = ct.proj(rL, v)*Id
         v = v - Th_v + Lv
         v = v.flatten()
@@ -174,7 +118,7 @@ def solve_for_RH(A_R, H, rL, params,
     Find the renormalized right environment Hamiltonian using a sparse
     solver.
     """
-    hR_bare = compute_hR(A_R, H)
+    hR_bare = ct.compute_hR(A_R, H)
     hR_div = ct.proj(rL, hR_bare)*np.eye(hR_bare.shape[0])
     hR = hR_bare - hR_div
     op = RH_linear_operator(A_R, rL)
@@ -187,14 +131,3 @@ def solve_for_RH(A_R, H, rL, params,
     return RH
 
 
-def solve(mpslist, delta, fpoints, H, env_solver_params, H_env=None):
-    if H_env is None:
-        H_env = [None, None]
-    lh, rh = H_env  # lowercase means 'from previous iteration'
-
-    A_L, C, A_R = mpslist
-    rL, lR = fpoints
-    LH = solve_for_LH(A_L, H, lR, lh, env_solver_params)
-    RH = solve_for_RH(A_R, H, rL, rh, env_solver_params)
-    H_env = [LH, RH]
-    return H_env

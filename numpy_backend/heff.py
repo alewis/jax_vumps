@@ -1,14 +1,11 @@
 import numpy as np
 from scipy.sparse.linalg import LinearOperator, eigs, eigsh
 
-import jax
-import jax.numpy as jnp
-
 import tensornetwork as tn
 
-import jax_vumps.numpy_impl.mps_linalg as mps_linalg
-import jax_vumps.numpy_impl.utils as utils
-import jax_vumps.numpy_impl.contractions as ct
+import jax_vumps.utils as utils
+import jax_vumps.contractions as ct
+import jax_vumps.numpy_backend.mps_linalg as mps_linalg
 
 
 ###############################################################################
