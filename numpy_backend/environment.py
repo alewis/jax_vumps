@@ -1,7 +1,7 @@
 import numpy as np
 import scipy as sp
 
-from scipy.sparse.linalg import LinearOperator, lgmres
+from scipy.sparse.linalg import LinearOperator, lgmres, gmres
 
 import tensornetwork as tn
 import jax_vumps.contractions as ct
@@ -29,19 +29,25 @@ def LH_linear_operator(A_L, lR):
     return op
 
 
-def call_solver(op, hI, params, x0):
+def call_solver(op, hI, params, x0, tol):
     """
     Code used by both solve_for_RH and solve_for_LH to call the
     sparse solver.
     """
     if x0 is not None:
         x0 = x0.flatten()
+    #  x, info = gmres(op,
+    #                  hI.flatten(),
+    #                  tol=tol,
+    #                  restart=params["n_krylov"],
+    #                  maxiter=params["max_restarts"])
+    tol = 1E-5
     x, info = lgmres(op,
                      hI.flatten(),
-                     tol=params["env_tol"],
-                     maxiter=params["env_maxiter"],
-                     inner_m=params["inner_m_lgmres"],
-                     outer_k=params["outer_k_lgmres"],
+                     tol=tol,#params["env_tol"],
+                     maxiter=params["maxiter"],
+                     inner_m=params["inner_m"],
+                     outer_k=params["outer_k"],
                      x0=x0)
     new_hI = x.reshape(hI.shape)
     return (new_hI, info)
@@ -51,7 +57,7 @@ def outermat(A, B):
     chi = A.shape[0]
     contract = [A, B]
     idxs = [[-2, -1], [-3, -4]]
-    return tn.ncon(contract, idxs).reshape((chi**2, chi**2))
+    return tn.ncon(contract, idxs, backend="numpy").reshape((chi**2, chi**2))
 
 
 def dense_LH_op(A_L, lR):
@@ -65,7 +71,7 @@ def dense_LH_op(A_L, lR):
     return mat
 
 
-def solve_for_LH(A_L, H, lR, params, oldLH=None,
+def solve_for_LH(A_L, H, lR, params, delta, oldLH=None,
                  dense=False):
     """
     Find the renormalized left environment Hamiltonian using a sparse
@@ -75,6 +81,7 @@ def solve_for_LH(A_L, H, lR, params, oldLH=None,
     hL_div = ct.proj(hL_bare, lR)*np.eye(hL_bare.shape[0])
     hL = hL_bare - hL_div
     chi = hL.shape[0]
+    tol = params["tol_coef"]*delta
 
     if dense:
         mat = dense_LH_op(A_L, lR)
@@ -82,11 +89,11 @@ def solve_for_LH(A_L, H, lR, params, oldLH=None,
         LH = sp.linalg.solve(mat.T, hL.reshape((chi**2)))
         LH = LH.reshape((chi, chi))
     else:
-
         op = LH_linear_operator(A_L, lR)
-        LH, info = call_solver(op, hL, params, oldLH)
+        LH, info = call_solver(op, hL, params, oldLH, tol)
         if info != 0:
             print("Warning: Hleft solution failed with code: "+str(info))
+
     return LH
 
 
@@ -112,7 +119,7 @@ def RH_linear_operator(A_R, rL):
     return op
 
 
-def solve_for_RH(A_R, H, rL, params,
+def solve_for_RH(A_R, H, rL, params, delta,
                  oldRH=None):
     """
     Find the renormalized right environment Hamiltonian using a sparse
@@ -122,7 +129,8 @@ def solve_for_RH(A_R, H, rL, params,
     hR_div = ct.proj(rL, hR_bare)*np.eye(hR_bare.shape[0])
     hR = hR_bare - hR_div
     op = RH_linear_operator(A_R, rL)
-    RH, info = call_solver(op, hR, params, oldRH)
+    tol = params["tol_coef"]*delta
+    RH, info = call_solver(op, hR, params, oldRH, tol)
     if info != 0:
         print("Warning: RH solution failed with code: "+str(info))
     # RHL = np.abs(ct.proj(rL, RH))

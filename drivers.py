@@ -10,11 +10,11 @@ import jax_vumps.vumps as vumps
 
 
 def runvumps(H, bond_dimension: int, gradient_tol: float,
-             maxiter: int, delta_0=0.1, checkpoint_every=500,
+             max_iter: int, delta_0=0.1, checkpoint_every=500,
              out_directory="./vumps",
              heff_krylov_params=vumps.krylov_params(),
              env_solver_params=vumps.solver_params(),
-             jax_linalg=True):
+             jax_linalg=False):
 
     """
     Performs a vumps simulation of some Hamiltonian H.
@@ -25,7 +25,7 @@ def runvumps(H, bond_dimension: int, gradient_tol: float,
     bond_dimension (int): Bond dimension of the MPS.
     gradient_tol (float): VUMPS will terminate once the MPS gradient reaches
                           this tolerance.
-    maxiter (int)       : VUMPS will terminate after this many iterations
+    max_iter (int)       : VUMPS will terminate after this many iterations
                           even if tolerance has not been reached.
     delta_0 (float)        : Initial value for the gradient norm. The
                              convergence thresholds of the various solvers at
@@ -43,14 +43,16 @@ def runvumps(H, bond_dimension: int, gradient_tol: float,
     jax_linalg (bool)   : Determines whether Jax or numpy code is used in
                           certain linear algebra calls.
     """
-    here = sys.path[0]
-    fullpath = here + path
 
     if jax_linalg:
-        os.environ["LINALG_BACKEND"] == "Jax"
+        os.environ["LINALG_BACKEND"] = "jax"
     else:
-        os.environ["LINALG_BACKEND"] == "NumPy"
-    out = vumps.vumps(H, bond_dimension, gradient_tol, max_iter,)
+        os.environ["LINALG_BACKEND"] = "numpy"
+    out = vumps.vumps(H, bond_dimension, gradient_tol, max_iter,
+                      delta_0=delta_0, checkpoint_every=checkpoint_every,
+                      out_directory=out_directory,
+                      heff_krylov_params=heff_krylov_params,
+                      env_solver_params=env_solver_params)
     return out
 
 
@@ -59,7 +61,7 @@ def vumpsXX(bond_dimension: int, gradient_tol: float,
             out_directory="./vumps",
             heff_krylov_params=vumps.krylov_params(),
             env_solver_params=vumps.solver_params(),
-            jax_linalg=True,
+            jax_linalg=False,
             dtype=np.float32):
     """
     Performs a vumps simulation of the XX model,

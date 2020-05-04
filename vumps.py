@@ -1,22 +1,34 @@
 import copy
 import os
+import importlib
 
 import numpy as np
 
-import jax_vumps.writer.Writer as Writer
+from jax_vumps.writer import Writer
 import jax_vumps.contractions as ct
-import jax_vumps.numpy_impl.observables as obs
+import jax_vumps.observables as obs
 
 import jax_vumps.jax_backend.environment as jax_environment
-import jax_vumps.np_backend.environment as np_environment
+import jax_vumps.numpy_backend.environment as np_environment
 
 import jax_vumps.jax_backend.heff as jax_heff
-import jax_vumps.np_backend.heff as np_heff
+import jax_vumps.numpy_backend.heff as np_heff
 
-if os.environ["LINALG_BACKEND"] == "Jax":
-    import jax_vumps.jax_backend.mps_linalg as mps_linalg
+try:
+    environ_name = os.environ["LINALG_BACKEND"]
+except KeyError:
+    print("While importing vumps.py,")
+    print("os.environ[\"LINALG_BACKEND\"] was undeclared; using NumPy.")
+    environ_name = "numpy"
+
+if environ_name == "jax":
+    mps_linalg_name = "jax_vumps.jax_backend.mps_linalg"
+elif environ_name == "numpy":
+    mps_linalg_name = "jax_vumps.numpy_backend.mps_linalg"
 else:
-    import jax_vumps.numpy_backend.mps_linalg as mps_linalg
+    raise ValueError("Invalid LINALG_BACKEND ", environ_name)
+
+mps_linalg = importlib.import_module(mps_linalg_name)
 
 
 ##########################################################################
@@ -39,7 +51,7 @@ def output(writer, Niter, delta, dE, E, norm, B2):
     outstr += "| |B2| = " + ostr(B2)
     writer.write(outstr)
 
-    this_output = [Niter, E, dE, delta, B2, norm]
+    this_output = np.array([Niter, E, dE, delta, B2, norm])
     writer.data_write(this_output)
 
 
@@ -82,12 +94,25 @@ def solve_environment(mpslist, delta, fpoints, H, env_solver_params,
 
     A_L, C, A_R = mpslist
     rL, lR = fpoints
+
     if env_solver_params["use_jax"]:
-        LH = jax_environment.solve_for_LH(A_L, H, lR, lh, env_solver_params)
-        RH = jax_environment.solve_for_RH(A_R, H, rL, rh, env_solver_params)
+        LH = jax_environment.solve_for_LH(A_L, H, lR, env_solver_params,
+                                          delta,
+                                          oldLH=lh)
+        RH = jax_environment.solve_for_RH(A_R, H, rL, env_solver_params,
+                                          delta,
+                                          oldRH=rh)
     else:
-        LH = np_environment.solve_for_LH(A_L, H, lR, lh, env_solver_params)
-        RH = np_environment.solve_for_RH(A_R, H, rL, rh, env_solver_params)
+        LH = np_environment.solve_for_LH(A_L, H, lR, env_solver_params,
+                                         delta,
+                                         oldLH=lh)
+        RH = np_environment.solve_for_RH(A_R, H, rL, env_solver_params,
+                                         delta,
+                                         oldRH=rh)
+    LHtest = np_environment.solve_for_LH(A_L, H, lR, env_solver_params, delta, oldLH=lh,
+                          dense=True)
+    print(np.allclose(LHtest, LH))
+    print(mps_linalg.frobnorm(LHtest, LH))
     H_env = [LH, RH]
     return H_env
 
@@ -139,7 +164,8 @@ def vumps_initialization(d: int, chi: int, dtype=np.float32):
     return (mpslist, A_C, fpoints)
 
 
-def vumps_iteration(iter_data, delta, H, heff_krylov_params, env_solver_params):
+def vumps_iteration(iter_data, delta, H, heff_krylov_params,
+                    env_solver_params):
     """
     One main iteration of VUMPS.
     """
@@ -154,14 +180,14 @@ def vumps_iteration(iter_data, delta, H, heff_krylov_params, env_solver_params):
     fpoints = vumps_approximate_tm_eigs(mpslist[1])
     H_env = solve_environment(mpslist, delta, fpoints, H, env_solver_params,
                               H_env=H_env)
-    return (mpslist, A_C, delta, fpoints, H_env)
+    return ((mpslist, A_C, fpoints, H_env), delta)
 
 
 def _diagnostics(oldmpslist, Eold, H, iter_data):
     """
     Makes a few computations to output during a vumps run.
     """
-    mpslist, A_C, delta, fpoints, H_env = iter_data
+    mpslist, A_C, fpoints, H_env = iter_data
     E = obs.twositeexpect(mpslist, H)
     dE = E - Eold
     norm = obs.norm(mpslist)
@@ -183,11 +209,12 @@ def krylov_params(n_krylov=40, max_restarts=10, tol_coef=0.1, use_jax=False):
     tol_coef (float): This number times the MPS gradient will be the
                       convergence threshold of the eigensolve.
     """
-    return {"n_krylov: ": n_krylov, "max_restarts": max_restarts,
-            "tol_coef: ": tol_coef, "use_jax": use_jax}
+    return {"n_krylov": n_krylov, "max_restarts": max_restarts,
+            "tol_coef": tol_coef, "use_jax": use_jax}
 
 
-def solver_params(n_krylov=40, max_restarts=10, tol_coef=0.1, use_jax=False):
+def solver_params(inner_m=40, outer_k=3, maxiter=50, tol_coef=0.00001,
+                  use_jax=False):
     """
     Bundles parameters for the (L)GMRES linear solver. These control
     the expense of finding the left and right environment Hamiltonians.
@@ -204,8 +231,11 @@ def solver_params(n_krylov=40, max_restarts=10, tol_coef=0.1, use_jax=False):
                       convergence threshold of the linear solve.
     use_jax (bool) : Toggles whether the Jax backedn is used.
     """
-    return {"n_krylov: ": n_krylov, "max_restarts": max_restarts,
-            "tol_coef: ": tol_coef, "use_jax": use_jax}
+    return {"inner_m": inner_m, "maxiter": maxiter, "outer_k": outer_k,
+            "tol_coef": tol_coef, "use_jax": use_jax}
+
+    #  return {"n_krylov": n_krylov, "maxter": max_restarts,
+    #          "tol_coef": tol_coef, "use_jax": use_jax}
 
 
 def vumps(H, chi: int, gradient_tol: float, max_iter: int,
@@ -257,7 +287,7 @@ def vumps(H, chi: int, gradient_tol: float, max_iter: int,
     mpslist, A_C, fpoints = vumps_initialization(d, chi, H.dtype)
 
     writer.write("VUMPS! VUMPS! VUMPS/VUMPS/VUMPS/VUMPS! VUMPS!")
-    H_env = solve_environment(mpslist, fpoints, H, delta, env_solver_params)
+    H_env = solve_environment(mpslist, delta, fpoints, H, env_solver_params)
     E = obs.twositeexpect(mpslist, H)
     writer.write("Initial energy: ", E)
     writer.write("And so it begins...")

@@ -2,8 +2,6 @@ import os
 import numpy as np
 import pickle as pkl
 
-from typing import String
-
 
 class Writer:
     """
@@ -24,7 +22,7 @@ class Writer:
                    self.print_file.
 
     """
-    def __init__(self, dirpath: String,
+    def __init__(self, dirpath: str,
                  consolefilename="console_output.txt",
                  datafilename="data.txt",
                  headers=None):
@@ -58,10 +56,12 @@ class Writer:
         self.console_file = os.path.join(self.directory, consolefilename)
         self.data_file = os.path.join(self.directory, datafilename)
 
-        the_header = ["# [" + str(i) + "] = " + header
-                      + "\n" for i, header in enumerate(headers)]
-        with open(self.data_file, "wb") as f:
-            np.savetxt(f, the_header)
+        if headers is not None:
+            the_header = ["# [" + str(i) + "] = " + header
+                          + "\n" for i, header in enumerate(headers)]
+            the_header = ''.join(the_header)
+            with open(self.data_file, "w") as f:
+                f.write(the_header)
 
     def write(self, outstring, verbose=True):
         """
@@ -94,6 +94,6 @@ class Writer:
         else:
             fend = "_t" + str(timestep) + ".pkl"
         fname = os.path.join(self.pickle_directory, fend)
-        self.console_write("Pickling to " + fname)
+        self.write("Pickling to " + fname)
         with open(fname, "wb") as f:
             pkl.dump(to_pickle, f)

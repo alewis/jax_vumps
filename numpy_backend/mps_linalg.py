@@ -30,9 +30,9 @@ def random_tensors(shapes, dtype=np.float32, seed=None):
     """
     tensors = []
     for shape in shapes:
-        tensor = np.random.rand(*shape, dtype=dtype)
-        if tensor.iscomplexobj():
-            tensor_i = np.random.rand(*shape, dtype=dtype)
+        tensor = np.random.rand(*shape).astype(dtype)
+        if np.iscomplexobj(tensor):
+            tensor_i = np.random.rand(*shape).astype(dtype)
             tensor = tensor + 1.0j*tensor_i
         tensors.append(tensor)
     return tensors
@@ -69,7 +69,7 @@ def random_tensors(shapes, dtype=np.float32, seed=None):
 #      return tensors
 
 
-def frobnormscaled(A, B=None):
+def frobnorm(A, B=None):
     """
     The Frobenius norm of the difference between A and B, divided by the
     number of entries in A.
@@ -120,7 +120,7 @@ def fuse_right(A):
     """
     oldshp = A.shape
     d, chiL, chiR = oldshp
-    A = A.transpose((1, 0, 2)).reshape((chiL, d*chiR)).conj()
+    A = A.transpose((1, 0, 2)).reshape((chiL, d*chiR))
     return A
 
 
@@ -129,12 +129,12 @@ def unfuse_right(A, shp):
     Reverses fuse_right.
     """
     d, chiL, chiR = shp
-    A = A.reshape((chiL, d, chiR)).transpose((1, 0, 2)).conj()
+    A = A.reshape((chiL, d, chiR)).transpose((1, 0, 2))
     return A
 
 
 def norm(A):
-    return np.norm(A)
+    return np.linalg.norm(A)
 
 
 def trace(A):
@@ -198,16 +198,16 @@ def lqpos(mps):
                tensor such that mps = L @ mps_R.
     """
     d, chiL, chiR = mps.shape
-    mps_mat = fuse_right(mps)
-    Qdag, Ldag = np.linalg.qr(mps_mat)
+    mpsT = mps.transpose((0, 2, 1))
+    Qdag, Ldag = qrpos(mpsT)
     Q = Qdag.T.conj()
     L = Ldag.T.conj()
-    phases = np.sign(np.diag(L))
-    L = L*phases
-    L = L / norm(L)
-    Q = phases.conj()[:, None] * Q
     mps_R = unfuse_right(Q, mps.shape)
     return (L, mps_R)
+
+
+def null_space(A):
+    return sp.linalg.null_space(A)
 
 
 def mps_null_spaces(mpslist):
@@ -220,11 +220,11 @@ def mps_null_spaces(mpslist):
     d, chi, _ = AL.shape
     NLshp = (d, chi, (d-1)*chi)
     ALdag = fuse_left(AL).T.conj()
-    NLm = sp.linalg.null_space(ALdag)
+    NLm = null_space(ALdag)
     NL = NLm.reshape(NLshp)
 
     ARmat = fuse_right(AR)
-    NRm_dag = sp.linalg.null_space(ARmat)
+    NRm_dag = null_space(ARmat)
     NRm = NRm_dag.conj()
     NR = NRm.reshape((d, chi, (d-1)*chi))
     NR = NR.transpose((0, 2, 1))
@@ -232,16 +232,24 @@ def mps_null_spaces(mpslist):
 
 
 def gauge_match(A_C, C):
-    QAC, RAC = qrpos(A_C)
-    QC, RC = qrpos(C)
-    A_L = ct.rightmult(QAC, np.conj(RC.T))
-    errL = norm(RAC-RC)
-    QAC, LAC = lqpos(A_C)
-    QC, LC = lqpos(C)
-    A_R = ct.leftmult(QC.T, QAC)
-    errR = norm(LAC-LC)
-    err = max(errL, errR)
-    return (A_L, A_R, err)
+    """
+    Return approximately gauge-matched A_L and A_R from A_C and C
+    using a polar decomposition.
+    """
+    Ashape = A_C.shape
+    AC_mat_l = fuse_left(A_C)
+    AC_mat_r = fuse_right(A_C)
+
+    UAc_l, PAc_l = sp.linalg.polar(AC_mat_l, side="right")
+    UAc_r, PAc_r = sp.linalg.polar(AC_mat_r, side="left")
+    UC_l, PC_l = sp.linalg.polar(C, side="right")
+    UC_r, PC_r = sp.linalg.polar(C, side="left")
+
+    A_L = np.dot(UAc_l, np.conj(UC_l.T))
+    A_L = unfuse_left(A_L, Ashape)
+    A_R = np.dot(np.conj(UC_r.T), UAc_r)
+    A_R = unfuse_right(A_R, Ashape)
+    return (A_L, A_R)
 
 
 

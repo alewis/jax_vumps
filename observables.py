@@ -3,12 +3,24 @@ These functions make computations upon an MPS based upon its interpretation
 as a quantum state.
 """
 import os
+import importlib
 import jax_vumps.contractions as ct
 
-if os.environ["LINALG_BACKEND"] == "Jax":
-    import jax_vumps.jax_backend.mps_linalg as mps_linalg
+try:
+    environ_name = os.environ["LINALG_BACKEND"]
+except KeyError:
+    print("While importing observables.py,")
+    print("os.environ[\"LINALG_BACKEND\"] was undeclared; using NumPy.")
+    environ_name = "numpy"
+
+if environ_name == "jax":
+    mps_linalg_name = "jax_vumps.jax_backend.mps_linalg"
+elif environ_name == "numpy":
+    mps_linalg_name = "jax_vumps.numpy_backend.mps_linalg"
 else:
-    import jax_vumps.numpy_backend.mps_linalg as mps_linalg
+    raise ValueError("Invalid LINALG_BACKEND ", environ_name)
+
+mps_linalg = importlib.import_module(mps_linalg_name)
 
 
 def B2_variance(oldlist, newlist):
@@ -28,8 +40,8 @@ def B2_variance(oldlist, newlist):
     NL, NR = mps_linalg.mps_null_spaces(oldlist)
     AL, C, AR = newlist
     AC = ct.rightmult(AL, C)
-    L = ct.XopL(AC, NL)
-    R = ct.XopR(AR, NR)
+    L = ct.ABL(AC, NL)
+    R = ct.ABR(AR, NR)
     B2_tensor = L @ R.T
     B2 = mps_linalg.norm(B2_tensor)
     return B2
@@ -55,5 +67,5 @@ def norm(mpslist):
     A_CR = ct.leftmult(C, A_R)
     rho = ct.rholoc(A_L, A_CR)
     d = rho.shape[0]
-    the_norm = mps_linalg.trace(rho.reshape(d*d, d*d))
+    the_norm = mps_linalg.trace(rho)
     return the_norm.real
