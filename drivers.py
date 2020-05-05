@@ -11,7 +11,7 @@ import jax_vumps.vumps as vumps
 
 def runvumps(H, bond_dimension: int, gradient_tol: float,
              max_iter: int, delta_0=0.1, checkpoint_every=500,
-             out_directory="./vumps",
+             out_directory="./vumps_output",
              heff_krylov_params=vumps.krylov_params(),
              env_solver_params=vumps.solver_params(),
              jax_linalg=False):

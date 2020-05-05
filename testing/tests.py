@@ -6,6 +6,7 @@ import jax_vumps.arnoldi as arnoldi
 import jax_vumps.operations as ops
 import jax_vumps.utils as utils
 import jax_vumps.gmres as gmres
+import jax_vumps.testing.vumps_tests as vumps_tests
 
 def errstring(arr1, name1, arr2, name2):
     """
@@ -404,6 +405,8 @@ def test_gmres(A, b, x0, tol=1E-5, n_kry=20, maxiter=None, thresh=1E-7,
             print("Ax : ", Ax)
             print("Ax should equal b.")
     return (passed, err)
+
+
 
 
 def run_tests():

@@ -1,10 +1,12 @@
 """
-Functions that operate upon MPS tensors as if they were matrices. 
+Functions that operate upon MPS tensors as if they were matrices.
 These functions are not necessarily backend-agnostic.
 """
 import numpy as np
 import scipy as sp
 
+from scipy.sparse.linalg import LinearOperator, eigsh
+from scipy.sparse.linalg.eigen.arpack.arpack import ArpackNoConvergence
 
 import jax_vumps.contractions as ct
 
@@ -252,4 +254,48 @@ def gauge_match(A_C, C):
     return (A_L, A_R)
 
 
+def tmeigs(A, B=None, nev=1, ncv=20, tol=1E-7, direction="right", v0=None,
+           maxiter=100, which="LM"):
+    if B is None:
+        B = np.conj(A)
+    d, chi_LA, chi_RA = A.shape
+    _, chi_LB, chi_RB = B.shape
+    if v0 is None:
+        v0 = np.zeros((chi_LB, chi_LA), dtype=A.dtype)
+        np.fill_diagonal(v0, 1)
+    if direction == "left":
+        outshape = (chi_LB, chi_LA)
 
+        def tmmatvec(xvec):
+            xmat = xvec.reshape(outshape)
+            xmat = ct.XopL(A, B=B, X=xmat)
+            xvec = xmat.flatten()
+            return xvec
+
+    elif direction == "right":
+        outshape = (chi_RB, chi_RA)
+
+        def tmmatvec(xvec):
+            xmat = xvec.reshape(outshape)
+            xmat = ct.XopR(A, B=B, X=xmat)
+            xvec = xmat.flatten()
+            return xvec
+    else:
+        raise ValueError("Invalid 'direction', ", direction)
+
+    op = LinearOperator((chi_LB*chi_LA, chi_RB*chi_RA),
+                        matvec=tmmatvec, dtype=A.dtype)
+    try:
+        vals, vecs = eigsh(op, k=nev, which=which, v0=v0, ncv=ncv,
+                           tol=tol, maxiter=maxiter)
+    except ArpackNoConvergence:
+        print("Warning: tmeigs didn't converge. Using higher maxiter.")
+        vals, vecs = eigsh(op, k=nev, which=which, v0=v0, ncv=ncv,
+                           tol=tol, maxiter=10*maxiter)
+
+    indmax = np.argmax(np.abs(vals))
+    v = vals[indmax]
+    V = vecs[:, indmax]
+    V /= np.linalg.norm(V)
+    V = V.reshape(outshape)
+    return (v, V)

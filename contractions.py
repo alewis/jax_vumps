@@ -16,6 +16,7 @@ import os
 import numpy as np
 import jax.numpy as jnp
 import tensornetwork as tn
+from mps_flrw.bhtools.tebd.scon import scon
 
 
 def default_backend():
@@ -140,74 +141,86 @@ def proj(A, B, backend=None):
     ans = tn.ncon(contract, idxs, backend=backend)
     return ans
 
+
 # *****************************************************************************
 # Single site to open legs.
 # *****************************************************************************
-def XL(A, X, backend=None):
+def XopL(A, B=None, X=None, backend=None):
     """
       |---A---2
       |   |
       X   |
       |   |
-      |---A---1
-    """
-    if backend is None:
-        backend = default_backend()
-    B = A.conj()
-    A = leftmult(X, A, backend=backend)
-    idx = [(2, 1, -2),
-           (2, 1, -1)]
-    return tn.ncon([A, B], idx, backend=backend)
-
-
-def ABL(A, B, backend=None):
-    """
-      |---A---2
-      |   |
-      |   |
-      |   |
       |---B---1
     """
     if backend is None:
         backend = default_backend()
+    if B is None:
+        B = A.conj()
+    if X is not None:
+        A = leftmult(X, A, backend=backend)
     idx = [(2, 1, -2),
            (2, 1, -1)]
     return tn.ncon([A, B], idx, backend=backend)
 
 
-def XR(A, X, backend=None):
+def XopR(A, B=None, X=None, backend=None):
     """
       2---A---|
           |   |
           |   X
           |   |
-      1---A---|
-    """
-    if backend is None:
-        backend = default_backend()
-    B = A.conj()
-    B = rightmult(B, X, backend=backend)
-    idx = [(2, -2, 1),
-           (2, -1, 1)]
-    return tn.ncon([A, B], idx, backend=backend)
-
-
-def ABR(A, B, backend=None):
-    """
-      2---A---|
-          |   |
-          |   |
-          |   |
       1---B---|
     """
     if backend is None:
         backend = default_backend()
+    if B is None:
+        B = A.conj()
+    if X is not None:
+        B = rightmult(B, X, backend=backend)
     idx = [(2, -2, 1),
            (2, -1, 1)]
     return tn.ncon([A, B], idx, backend=backend)
+
+
 # ***************************************************************************
 # TWO SITE OPERATORS
 # ***************************************************************************
+#  def normalize_fixed_points(l, r, lam=None, verbose=True):
+#      """
+#         a) l and r are both Hermitian positive semi-definite.
+#         b) l.T * lam * r * lam = 1
+#      """
+#      l /= npla.norm(np.ravel(l))
+#      r /= npla.norm(np.ravel(r))
+#      # Divide out the appropriate phase to make l and r Hermitian pos. semi-def
+#      r_tr = np.trace(r)
+#      phase_r = r_tr/np.abs(r_tr)
+#      r/= phase_r
+#      l_tr = np.trace(l)
+#      phase_l = l_tr/np.abs(l_tr)
+#      l /= phase_l
+
+#      normright = ct.gauge_transform(lam, r, lam)
+#      n = np.vdot(np.ravel(l), np.ravel(normright))
+#      abs_n = np.abs(n)
+#      l /= np.sqrt(abs_n)
+#      r /= np.sqrt(abs_n)
+#      tol = 1E-12
+#      if verbose and abs_n < tol:
+#          print("Warning: l and r are orthogonal; their dot product is", abs_n)
+#          #raise AssertionError()
+
+#      lh = 0.5*(l+np.conj(l).T)
+#      rh = 0.5*(r+np.conj(r).T)
+#      if verbose:
+#          if npla.norm(lh-l) > tol:
+#              print("Warning: l was not made Hermitian")
+#              #raise AssertionError()
+#          if npla.norm(rh-r) > tol:
+#              print("Warning: r was not made Hermitian")
+#              #raise AssertionError()
+#      return lh, rh
 
 
 def rholoc(A1, A2, backend=None):
@@ -419,6 +432,20 @@ def HAc_dense(A_L, A_R, Hlist, backend=None):
 
     HAc = term1 + term2 + term3 + term4
     return HAc
+
+
+def apply_HAc_dense(A_C, A_L, A_R, Hlist):
+    """
+    Construct the dense effective Hamiltonian HAc and apply it to A_C.
+    For testing.
+    """
+    d, chi, _ = A_C.shape
+    HAc = HAc_dense(A_L, A_R, Hlist)
+    HAc_mat = HAc.reshape((d*chi*chi, d*chi*chi))
+    A_Cvec = A_C.flatten()
+    A_C_p = HAc_mat @ A_Cvec
+    A_C_p = A_C_p.reshape(A_C.shape)
+    return A_C_p
 
 
 def apply_Hc(C, A_L, A_R, Hlist, backend=None):

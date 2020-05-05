@@ -54,6 +54,9 @@ class Writer:
             os.makedirs(self.pickle_directory)
 
         self.console_file = os.path.join(self.directory, consolefilename)
+        with open(self.console_file, "w") as f:
+            f.write("")
+
         self.data_file = os.path.join(self.directory, datafilename)
 
         if headers is not None:

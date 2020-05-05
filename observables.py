@@ -40,8 +40,8 @@ def B2_variance(oldlist, newlist):
     NL, NR = mps_linalg.mps_null_spaces(oldlist)
     AL, C, AR = newlist
     AC = ct.rightmult(AL, C)
-    L = ct.ABL(AC, NL)
-    R = ct.ABR(AR, NR)
+    L = ct.XopL(AC, B=NL)
+    R = ct.XopR(AR, B=NR)
     B2_tensor = L @ R.T
     B2 = mps_linalg.norm(B2_tensor)
     return B2

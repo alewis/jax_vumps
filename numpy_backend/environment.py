@@ -19,7 +19,7 @@ def LH_linear_operator(A_L, lR):
 
     def matvec(v):
         v = v.reshape((chi, chi))
-        Th_v = ct.XL(A_L, v)
+        Th_v = ct.XopL(A_L, X=v)
         vR = ct.proj(v, lR)*Id
         v = v - Th_v + vR
         v = v.flatten()
@@ -110,7 +110,7 @@ def RH_linear_operator(A_R, rL):
 
     def matvec(v):
         v = v.reshape((chi, chi))
-        Th_v = ct.XR(A_R, v)
+        Th_v = ct.XopR(A_R, X=v)
         Lv = ct.proj(rL, v)*Id
         v = v - Th_v + Lv
         v = v.flatten()

@@ -81,11 +81,10 @@ def make_writer(outdir=None):
     writer = Writer(outdir, headers=headers)
     return writer
 
+
 ###############################################################################
 # Effective environment.
 ###############################################################################
-
-
 def solve_environment(mpslist, delta, fpoints, H, env_solver_params,
                       H_env=None):
     if H_env is None:
@@ -109,12 +108,49 @@ def solve_environment(mpslist, delta, fpoints, H, env_solver_params,
         RH = np_environment.solve_for_RH(A_R, H, rL, env_solver_params,
                                          delta,
                                          oldRH=rh)
-    LHtest = np_environment.solve_for_LH(A_L, H, lR, env_solver_params, delta, oldLH=lh,
-                          dense=True)
-    print(np.allclose(LHtest, LH))
-    print(mps_linalg.frobnorm(LHtest, LH))
     H_env = [LH, RH]
     return H_env
+
+
+###############################################################################
+# Gradient.
+###############################################################################
+def vumps_loss(A_L, A_C):
+    """
+    Norm of MPS gradient: see Appendix 4.
+    """
+    A_L_mat = mps_linalg.fuse_left(A_L)
+    A_L_dag = A_L_mat.T.conj()
+    N_L = mps_linalg.null_space(A_L_dag)
+    N_L_dag = N_L.T.conj()
+    A_C_mat = mps_linalg.fuse_left(A_C)
+    B = N_L_dag @ A_C_mat
+    Bnorm = mps_linalg.norm(B)
+    return Bnorm
+
+
+def apply_gradient(iter_data, delta, H, heff_krylov_params):
+    """
+    Apply the MPS gradient.
+    """
+    mpslist, A_C, fpoints, H_env = iter_data
+    a_l, c, a_r = mpslist
+    rL, lR = fpoints
+    LH, RH = H_env
+    Hlist = [H, LH, RH]
+    if heff_krylov_params["use_jax"]:
+        A_C = jax_heff.minimize_HAc(mpslist, A_C, Hlist, delta,
+                                    heff_krylov_params)
+        C = jax_heff.minimize_Hc(mpslist, Hlist, delta, heff_krylov_params)
+    else:
+        A_C = np_heff.minimize_HAc(mpslist, A_C, Hlist, delta,
+                                   heff_krylov_params)
+        C = np_heff.minimize_Hc(mpslist, Hlist, delta, heff_krylov_params)
+    A_L, A_R = mps_linalg.gauge_match(A_C, C)
+    newmpslist = [A_L, C, A_R]
+    delta = vumps_loss(a_l, A_C)
+    return (newmpslist, A_C, delta)
+
 
 ###############################################################################
 # Main loop and friends.
@@ -122,7 +158,7 @@ def solve_environment(mpslist, delta, fpoints, H, env_solver_params,
 def vumps_approximate_tm_eigs(C):
     """
     Returns the approximate transfer matrix dominant eigenvectors,
-    rL ~ C^\dag C, and lR ~ C C\dag = rL\dag, both trace-normalized.
+    rL ~ C^dag C, and lR ~ C Cdag = rLdag, both trace-normalized.
     """
     rL = (C.T.conj()) @ C
     rL /= mps_linalg.trace(rL)
@@ -155,11 +191,13 @@ def vumps_initialization(d: int, chi: int, dtype=np.float32):
     A_1, A_2 = mps_linalg.random_tensors([(d, chi, chi), (d, chi, chi)],
                                          dtype=dtype)
 
-    A_L, C_1 = mps_linalg.qrpos(A_1)
-    C_2, A_R = mps_linalg.lqpos(A_2)
-    C = C_1@C_2
+    A_L, _ = mps_linalg.qrpos(A_1)
+    C, A_R = mps_linalg.lqpos(A_L)
     A_C = ct.rightmult(A_L, C)
-    fpoints = vumps_approximate_tm_eigs(C)
+    L0, R0 = vumps_approximate_tm_eigs(C)
+    _, L = mps_linalg.tmeigs(A_R, direction="left", v0=L0)
+    _, R = mps_linalg.tmeigs(A_L, direction="right", v0=R0)
+    fpoints = (L, R)
     mpslist = [A_L, C, A_R]
     return (mpslist, A_C, fpoints)
 
@@ -170,13 +208,8 @@ def vumps_iteration(iter_data, delta, H, heff_krylov_params,
     One main iteration of VUMPS.
     """
     mpslist, A_C, fpoints, H_env = iter_data
-    if heff_krylov_params["use_jax"]:
-        mpslist, A_C, delta = jax_heff.apply_gradient(iter_data, delta, H,
-                                                      heff_krylov_params)
-    else:
-        mpslist, A_C, delta = np_heff.apply_gradient(iter_data, delta, H,
-                                                     heff_krylov_params)
-
+    mpslist, A_C, delta = apply_gradient(iter_data, delta, H,
+                                         heff_krylov_params)
     fpoints = vumps_approximate_tm_eigs(mpslist[1])
     H_env = solve_environment(mpslist, delta, fpoints, H, env_solver_params,
                               H_env=H_env)
@@ -195,7 +228,7 @@ def _diagnostics(oldmpslist, Eold, H, iter_data):
     return dE, E, norm, B2
 
 
-def krylov_params(n_krylov=40, max_restarts=10, tol_coef=0.1, use_jax=False):
+def krylov_params(n_krylov=40, max_restarts=10, tol_coef=0.01, use_jax=False):
     """
     Bundles parameters for the Lanczos eigensolver. These control
     the expense of finding the left and right environment tensors, and of
@@ -213,7 +246,7 @@ def krylov_params(n_krylov=40, max_restarts=10, tol_coef=0.1, use_jax=False):
             "tol_coef": tol_coef, "use_jax": use_jax}
 
 
-def solver_params(inner_m=40, outer_k=3, maxiter=50, tol_coef=0.00001,
+def solver_params(inner_m=30, outer_k=10, maxiter=100, tol_coef=0.01,
                   use_jax=False):
     """
     Bundles parameters for the (L)GMRES linear solver. These control
@@ -289,7 +322,7 @@ def vumps(H, chi: int, gradient_tol: float, max_iter: int,
     writer.write("VUMPS! VUMPS! VUMPS/VUMPS/VUMPS/VUMPS! VUMPS!")
     H_env = solve_environment(mpslist, delta, fpoints, H, env_solver_params)
     E = obs.twositeexpect(mpslist, H)
-    writer.write("Initial energy: ", E)
+    writer.write("Initial energy: "+str(E))
     writer.write("And so it begins...")
     iter_data = [mpslist, A_C, fpoints, H_env]
     for Niter in range(max_iter):
@@ -299,10 +332,10 @@ def vumps(H, chi: int, gradient_tol: float, max_iter: int,
                                            heff_krylov_params,
                                            env_solver_params)
         dE, E, norm, B2 = _diagnostics(oldlist, Eold, H, iter_data)
-        output(writer, Niter, delta, E, dE, norm, B2)
+        output(writer, Niter, delta, dE, E, norm, B2)
         deltas.append(delta)
         if delta <= gradient_tol:
-            writer.write("Convergence achieved at iteration ", Niter)
+            writer.write("Convergence achieved at iteration " + str(Niter))
             break
 
         if checkpoint_every is not None and Niter % checkpoint_every == 0:

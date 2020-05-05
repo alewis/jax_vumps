@@ -54,9 +54,7 @@ def sparse_eigensolve(func, tol, arr_shape, guess, params,
                           **kwargs)
     ncv = params["n_krylov"]
     maxiter = params["max_restarts"]
-    neigs = 1  # params["Heff_neigs"]
-    tol = 1E-5
-    hermitian = True
+    neigs = 1
     # print("guess: ", guess)
     # print(guess.flatten())
     if hermitian:
@@ -71,13 +69,10 @@ def sparse_eigensolve(func, tol, arr_shape, guess, params,
     eV = eV.reshape(arr_shape)
     return eV
 
+
 ###############################################################################
 # Effective Hamiltonians for A_C.
 ###############################################################################
-
-
-
-
 def minimize_HAc(mpslist, A_C, Hlist, delta, params):
     """
     The dominant (most negative) eigenvector of HAc.
@@ -90,20 +85,6 @@ def minimize_HAc(mpslist, A_C, Hlist, delta, params):
     return A_C_prime.real
 
 
-
-def apply_HAc_dense(A_C, A_L, A_R, Hlist):
-    """
-    Construct the dense effective Hamiltonian HAc and apply it to A_C.
-    For testing.
-    """
-    d, chi, _ = A_C.shape
-    HAc = ct.HAc_dense(A_L, A_R, Hlist)
-    HAc_mat = HAc.reshape((d*chi*chi, d*chi*chi))
-    A_Cvec = A_C.flatten()
-    A_C_p = np.dot(HAc_mat, A_Cvec).reshape(A_C.shape)
-    return A_C_p
-
-
 def HAc_dense_eigs(mpslist, Hlist, hermitian=True):
     """
     Construct the dense effective Hamiltonian HAc and find its dominant
@@ -113,16 +94,8 @@ def HAc_dense_eigs(mpslist, Hlist, hermitian=True):
     HAc = ct.HAc_dense(A_L, A_R, Hlist)
     d, chi, _ = A_L.shape
     HAc_mat = HAc.reshape((d*chi*chi, d*chi*chi))
-    print("HAc Herm: ", np.linalg.norm(HAc_mat - np.conj(HAc_mat.T)))
-    if hermitian:
-        w, v = np.linalg.eigh(HAc_mat)
-    else:
-        w, v = np.linalg.eig(HAc_mat)
-
-    #print("HAc evs: ", w[0])
-    A_C = v[:, 0]
-    A_C /= np.linalg.norm(A_C)
-    A_C = A_C.reshape(A_L.shape)
+    w, v = np.linalg.eigh(HAc_mat)
+    A_C = v[:, 0].reshape(A_L.shape)
     return A_C
 
 
@@ -181,32 +154,4 @@ def Hc_dense_eigs(A_L, A_R, Hlist, hermitian=True):
     return C
 
 
-def vumps_loss(A_L, A_C):
-    """
-    Norm of MPS gradient: see Appendix 4.
-    """
-    A_L_mat = mps_linalg.fuse_left(A_L)
-    A_L_dag = A_L_mat.T.conj()
-    N_L = mps_linalg.null_space(A_L_dag)
-    N_L_dag = N_L.T.conj()
-    A_C_mat = mps_linalg.fuse_left(A_C)
-    B = N_L_dag @ A_C_mat
-    Bnorm = mps_linalg.norm(B)
-    return Bnorm
 
-
-def apply_gradient(iter_data, delta, H, heff_krylov_params):
-    """
-    Work loop for vumps.
-    """
-    mpslist, A_C, fpoints, H_env = iter_data
-    a_l, c, a_r = mpslist
-    rL, lR = fpoints
-    LH, RH = H_env
-    Hlist = [H, LH, RH]
-    A_C = minimize_HAc(mpslist, A_C, Hlist, delta, heff_krylov_params)
-    C = minimize_Hc(mpslist, Hlist, delta, heff_krylov_params)
-    A_L, A_R = mps_linalg.gauge_match(A_C, C)
-    newmpslist = [A_L, C, A_R]
-    delta = vumps_loss(a_l, A_C)
-    return (newmpslist, A_C, delta)
