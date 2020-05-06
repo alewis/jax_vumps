@@ -43,7 +43,6 @@ def runvumps(H, bond_dimension: int, gradient_tol: float,
     jax_linalg (bool)   : Determines whether Jax or numpy code is used in
                           certain linear algebra calls.
     """
-
     if jax_linalg:
         os.environ["LINALG_BACKEND"] = "jax"
     else:
@@ -76,27 +75,7 @@ def vumpsXX(bond_dimension: int, gradient_tol: float,
                    jax_linalg=jax_linalg)
     return out
 
-def vumps_XX(bond_dimension, gradient_tol=1E-4, path="/testout/np_vumps_XX",
-             maxiter=100, jax=True, dtype=np.float32):
-    """
-    Performs a vumps simulation of the XX model,
-    H = XX + YY.
 
-    PARAMETERS
-    ----------
-    path (string): Path to the directory where output is to be saved. It will
-                   be created if it doesn't exist.
-    bond_dimension (int): Bond dimension of the MPS.
-    gradient_tol (float): VUMPS will terminate once the MPS gradient reaches
-                          this tolerance.
-    maxiter (int)       : VUMPS will terminate after this many iterations
-                          even if tolerance has not been reached.
-    jax (bool)   : Determines whether Jax or numpy code is used.
-    dtype        : dtype of the output and internal computations.
-    """
-    H = mat.H_XX(jax=jax, dtype=dtype)
-    out = runvumps(H, path, bond_dimension, gradient_tol, maxiter, jax=jax)
-    return out
 #  def vumps_XXZ(bond_dimension, gradient_tol=1E-4, maxiter=100,
 #                path="/testout/np_vumps_xxz",
 #                delta=1, ud=2, scale=1, jax=True, dtype=np.float32):

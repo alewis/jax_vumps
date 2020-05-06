@@ -41,7 +41,6 @@ def call_solver(op, hI, params, x0, tol):
     #                  tol=tol,
     #                  restart=params["n_krylov"],
     #                  maxiter=params["max_restarts"])
-    tol = 1E-5
     x, info = lgmres(op,
                      hI.flatten(),
                      tol=tol,#params["env_tol"],

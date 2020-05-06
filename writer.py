@@ -25,7 +25,9 @@ class Writer:
     def __init__(self, dirpath: str,
                  consolefilename="console_output.txt",
                  datafilename="data.txt",
-                 headers=None):
+                 timingfilename="timing.txt",
+                 data_headers=None,
+                 timing_headers=None):
         """
         Instantiates the writer and prepares the output directories.
 
@@ -35,8 +37,9 @@ class Writer:
                  be created if it doesn't exist. A subdirectory
                  dirpath/pickles will also be created.
 
-        consolefile: Saves the strings fed to Writer.print().
-        datafile : Saves numeric data fed to Writer.write_array().
+        consolefilename: Saves the strings fed to Writer.write().
+        datafilename : Saves numeric data fed to Writer.data_write().
+        timingfilename : Saves timing data fed to Writer.timing_write().
         headers  : A list of strings. Each will be written at the beginning
                    of datafile as a header. For example, headers=["A", "B"]
                    will result in 'datafile' beginning with
@@ -53,18 +56,27 @@ class Writer:
         if not os.path.exists(self.pickle_directory):
             os.makedirs(self.pickle_directory)
 
-        self.console_file = os.path.join(self.directory, consolefilename)
-        with open(self.console_file, "w") as f:
-            f.write("")
+        self.console_file = self._initialize_file(consolefilename)
+        self.data_file = self._initialize_file(datafilename,
+                                               headers=data_headers)
+        self.timing_file = self._initialize_file(timingfilename,
+                                                 headers=timing_headers)
+        self.timing_headers = timing_headers
 
-        self.data_file = os.path.join(self.directory, datafilename)
-
+    def _initialize_file(self, filename, headers=None):
+        """
+        Opens a file in the output directory with a given filename,
+        and optionally writes a set of headers at the beginning. Returns
+        the path to the file.
+        """
+        the_file = os.path.join(self.directory, filename)
         if headers is not None:
             the_header = ["# [" + str(i) + "] = " + header
                           + "\n" for i, header in enumerate(headers)]
             the_header = ''.join(the_header)
-            with open(self.data_file, "w") as f:
+            with open(the_file, "w") as f:
                 f.write(the_header)
+        return the_file
 
     def write(self, outstring, verbose=True):
         """
@@ -85,6 +97,25 @@ class Writer:
         """
         to_write = data.reshape((1, data.size))
         with open(self.data_file, "ab") as f:
+            np.savetxt(f, to_write)
+
+    def timing_write(self, Niter, timing_data):
+        """
+        Write the entries in timing_data matching self.timing_headers
+        as a row to the timing file in the appropriate order.
+        """
+        if self.timing_headers is None:
+            raise ValueError("No timing headers specified.")
+        out = [Niter]
+        for key in self.timing_headers:
+            if key != "N":
+                try:
+                    out.append(timing_data[key])
+                except KeyError:
+                    self.write("Warning: key '"+key+"' wasn't in timing dict.")
+        out = np.array(out)
+        to_write = out.reshape((1, out.size))
+        with open(self.timing_file, "ab") as f:
             np.savetxt(f, to_write)
 
     def pickle(self, to_pickle, timestep: int, name=None):

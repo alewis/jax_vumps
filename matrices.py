@@ -152,9 +152,9 @@ def H_XX(jax=True, dtype=np.float32):
     dtype: the data type of the return value.
     """
     X = sigX(jax=False, dtype=dtype)
-    Y = sigZ(jax=False, dtype=dtype)
-    H = np.kron(X, X) + np.kron(Y, Y).real
-    H = H.reshape(2, 2, 2, 2)
+    Y = sigY(jax=False, dtype=dtype)
+    H = np.kron(X, X) + np.kron(Y, Y)
+    H = H.reshape(2, 2, 2, 2).real
     if jax:
         H = jnp.array(H)
     return H
