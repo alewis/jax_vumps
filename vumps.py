@@ -3,14 +3,10 @@ import os
 import importlib
 
 import numpy as np
-#import jax
 
 from jax_vumps.writer import Writer
-import jax_vumps.contractions as ct
-import jax_vumps.observables as obs
 import jax_vumps.benchmark as benchmark
 
-import bhtools.tebd.vumps as old_vumps
 
 try:
     ENVIRON_NAME = os.environ["LINALG_BACKEND"]
@@ -19,31 +15,17 @@ except KeyError:
     print("os.environ[\"LINALG_BACKEND\"] was undeclared; using NumPy.")
     ENVIRON_NAME = "numpy"
 
+
 BACKEND_DIR_NAME = "jax_vumps." + ENVIRON_NAME + "_backend."
 MPS_LINALG_NAME = BACKEND_DIR_NAME + "mps_linalg"
 HEFF_NAME = BACKEND_DIR_NAME + "heff"
 ENVIRONMENT_NAME = BACKEND_DIR_NAME + "environment"
+CONTRACTIONS_NAME = BACKEND_DIR_NAME + "contractions"
 
 mps_linalg = importlib.import_module(MPS_LINALG_NAME)
 heff = importlib.import_module(HEFF_NAME)
 environment = importlib.import_module(ENVIRONMENT_NAME)
-
-
-#  if environ_name == "jax":
-#      JAX_MODE = True
-#  elif environ_name == "numpy":
-#      JAX_MODE = False
-#      mps_linalg_name = "jax_vumps.numpy_backend.mps_linalg"
-#  else:
-#    raise ValueError("Invalid LINALG_BACKEND ", environ_name)
-
-
-
-#  def jit_toggle(f, static_argnums=None):
-#      if JAX_MODE:
-#          return jax.jit(f, static_argnums=static_argnums)
-#      else:
-#          return f
+ct = importlib.import_module(CONTRACTIONS_NAME)
 
 
 ##########################################################################
@@ -55,18 +37,18 @@ def ostr(string):
     return '{:1.4e}'.format(string)
 
 
-def output(writer, Niter, delta, E, norm, B2, timing_data=None):
+def output(writer, Niter, delta, E, norm, timing_data=None):
     """
     Does the actual outputting.
     """
     outstr = "N = " + str(Niter) + "| |B| = " + ostr(delta)
     outstr += "| E = " + '{0:1.16f}'.format(E)
-    outstr += "| |B2| = " + ostr(B2)
+    # outstr += "| |B2| = " + ostr(B2)
     if timing_data is not None:
         outstr += "| dt= " + ostr(timing_data["Total"])
     writer.write(outstr)
 
-    this_output = np.array([Niter, E, delta, B2, norm])
+    this_output = np.array([Niter, E, delta, norm])
     writer.data_write(this_output)
 
     if timing_data is not None:
@@ -93,7 +75,7 @@ def make_writer(outdir=None):
     writer (writer.Writer): The Writer.
     """
 
-    data_headers = ["N", "E", "dE", "|B|", "|B2|", "<psi>"]
+    data_headers = ["N", "E", "|B|", "<psi>"]
     if outdir is None:
         return None
     timing_headers = ["N", "Total", "Diagnostics", "Iteration",
@@ -137,19 +119,6 @@ def solve_environment(mpslist, delta, fpoints, H, env_solver_params,
 ###############################################################################
 # Gradient.
 ###############################################################################
-#@jit_toggle
-def vumps_loss(A_L, A_C):
-    """
-    Norm of MPS gradient: see Appendix 4.
-    """
-    A_L_mat = mps_linalg.fuse_left(A_L)
-    A_L_dag = A_L_mat.T.conj()
-    N_L = mps_linalg.null_space(A_L_dag)
-    N_L_dag = N_L.T.conj()
-    A_C_mat = mps_linalg.fuse_left(A_C)
-    B = N_L_dag @ A_C_mat
-    Bnorm = mps_linalg.norm(B)
-    return Bnorm
 
 
 def apply_gradient(iter_data, delta, H, heff_krylov_params):
@@ -176,7 +145,8 @@ def apply_gradient(iter_data, delta, H, heff_krylov_params):
     timing["Gauge Match"] = benchmark.tock(timing["Gauge Match"], dat=A_L)
 
     timing["Loss"] = benchmark.tick()
-    delta = vumps_loss(a_l, A_C)
+    delta = mps_linalg.norm(A_C - ct.rightmult(A_L, C))
+    # delta = mps_linalg.vumps_loss(a_l, A_C)
     timing["Loss"] = benchmark.tock(timing["Loss"], dat=delta)
 
     newmpslist = [A_L, C, A_R]
@@ -196,7 +166,6 @@ def apply_gradient(iter_data, delta, H, heff_krylov_params):
 ###############################################################################
 # Main loop and friends.
 ###############################################################################
-#@jit_toggle
 def vumps_approximate_tm_eigs(C):
     """
     Returns the approximate transfer matrix dominant eigenvectors,
@@ -236,8 +205,6 @@ def vumps_initialization(d: int, chi: int, dtype=np.float32):
     C, A_R = mps_linalg.lqpos(A_L)
     A_C = ct.rightmult(A_L, C)
     L0, R0 = vumps_approximate_tm_eigs(C)
-    _, L = mps_linalg.tmeigs(A_R, direction="left", v0=L0)
-    _, R = mps_linalg.tmeigs(A_L, direction="right", v0=R0)
     fpoints = (L0, R0)
     mpslist = [A_L, C, A_R]
     return (mpslist, A_C, fpoints)
@@ -251,13 +218,16 @@ def vumps_iteration(iter_data, delta, H, heff_krylov_params,
     timing = {}
     timing["Iteration"] = benchmark.tick()
     mpslist, A_C, fpoints, H_env = iter_data
+    print("start gradient")
     mpslist, A_C, delta, grad_time = apply_gradient(iter_data, delta, H,
                                                     heff_krylov_params)
+    print("done gradient")
     timing.update(grad_time)
     fpoints = vumps_approximate_tm_eigs(mpslist[1])
     H_env, env_time = solve_environment(mpslist, delta, fpoints, H,
                                         env_solver_params,
                                         H_env=H_env)
+    print("done env")
     timing.update(env_time)
     timing["Iteration"] = benchmark.tock(timing["Iteration"], dat=H_env[0])
     return ((mpslist, A_C, fpoints, H_env), delta, timing)
@@ -269,11 +239,10 @@ def diagnostics(oldmpslist, H, iter_data):
     """
     t0 = benchmark.tick()
     mpslist, A_C, fpoints, H_env = iter_data
-    E = obs.twositeexpect(mpslist, H)
-    norm = obs.norm(mpslist)
-    B2 = obs.B2_variance(oldmpslist, mpslist)
-    tf = benchmark.tock(t0, dat=B2)
-    return E, norm, B2, tf
+    E = mps_linalg.twositeexpect(mpslist, H)
+    norm = mps_linalg.mpsnorm(mpslist)
+    tf = benchmark.tock(t0, dat=norm)
+    return E, norm, tf
 
 
 def krylov_params(n_krylov=40, max_restarts=100, tol_coef=0.01):
@@ -296,7 +265,8 @@ def krylov_params(n_krylov=40, max_restarts=100, tol_coef=0.01):
 
 def solver_params(inner_m=30, outer_k=10, maxiter=100, tol_coef=0.01):
     """
-    Bundles parameters for the (L)GMRES linear solver. These control the expense of finding the left and right environment Hamiltonians.  
+    Bundles parameters for the (L)GMRES linear solver. These control the
+    expense of finding the left and right environment Hamiltonians. 
     For GMRES, these are in fact the same parameters as used in the Lanczos
     solve, but when/if we generalize to LGMRES they will not be.
 
@@ -317,8 +287,10 @@ def vumps(H, chi: int, gradient_tol: float, max_iter: int,
           checkpoint_every=500,
           out_directory="./vumps",
           heff_krylov_params=krylov_params(),
-          env_solver_params=solver_params()):
-    """ Find the ground state of a uniform two-site Hamiltonian
+          env_solver_params=krylov_params()):
+    # env_solver_params=solver_params()):
+    """
+    Find the ground state of a uniform two-site Hamiltonian
     using Variational Uniform Matrix Product States. This is a gradient
     descent method minimizing the distance between a given MPS and the
     best approximation to the physical ground state at its bond dimension.
@@ -365,7 +337,7 @@ def vumps(H, chi: int, gradient_tol: float, max_iter: int,
                                              delta, fpoints, H,
                                              env_solver_params)
 
-    E = obs.twositeexpect(mpslist, H)
+    E = mps_linalg.twositeexpect(mpslist, H)
     writer.write("Initial energy: " + str(E))
     writer.write("Initial solve time: " + str(env_init_time["Environment"]))
     writer.write("And so it begins...")
@@ -379,11 +351,11 @@ def vumps(H, chi: int, gradient_tol: float, max_iter: int,
                                                       env_solver_params)
         timing.update(iter_time)
 
-        E, norm, B2, tD = diagnostics(oldlist, H, iter_data)
+        E, norm, tD = diagnostics(oldlist, H, iter_data)
 
         timing["Diagnostics"] = tD
         timing["Total"] = benchmark.tock(timing["Total"], dat=iter_data[1])
-        output(writer, Niter, delta, E, norm, B2, timing)
+        output(writer, Niter, delta, E, norm, timing)
         deltas.append(delta)
         if delta <= gradient_tol:
             writer.write("Convergence achieved at iteration " + str(Niter))

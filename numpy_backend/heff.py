@@ -3,7 +3,7 @@ from scipy.sparse.linalg import LinearOperator, eigs, eigsh
 
 import tensornetwork as tn
 
-import jax_vumps.contractions as ct
+import jax_vumps.numpy_backend.contractions as ct
 import jax_vumps.numpy_backend.mps_linalg as mps_linalg
 
 

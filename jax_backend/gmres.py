@@ -1,18 +1,15 @@
 
 from functools import partial
-from typing import Sequence, Callable
 import numpy as np
-import sys
 
 import jax
 import jax.numpy as jnp
-from jax.ops import index, index_update, index_add
 
-import jax_vumps.arnoldi as arnoldi
+import jax_vumps.jax_backend.arnoldi as arnoldi
 
 
 def gmres_m(A_mv, A_args, b, x0, n_kry=20, max_restarts=None, tol=1E-6,
-            M=None):
+            M=None, verbose=False):
     """
     Solve A x = b for x using the restarted GMRES method.
 
@@ -36,8 +33,9 @@ def gmres_m(A_mv, A_args, b, x0, n_kry=20, max_restarts=None, tol=1E-6,
 
                          n_kry is set to x0.size in case it is larger than
                          this.
-    max_restarts(int,default 10000): The algorithm will terminate after this many
-                                 restarts even if unconverged.
+    max_restarts(int, default 100): The algorithm will terminate after this
+                                     many
+                                     restarts even if unconverged.
     tol                 : Error threshold.
     M : Inverse of the preconditioner of A. Presently unsupported.
 
@@ -103,7 +101,11 @@ def gmres_m(A_mv, A_args, b, x0, n_kry=20, max_restarts=None, tol=1E-6,
         if beta < tol or beta_rel < tol:
             converged = True
             break
-    return x, beta_rel, n_iter, converged
+
+    if verbose and not converged:
+        print("Warning: gmres exited without converging with error ", beta_rel)
+
+    return (x, beta_rel, n_iter, converged)
 
 
 @partial(jax.jit, static_argnums=(3,))
@@ -126,7 +128,6 @@ def gmres_residual(A_mv, A_args, b, x):
     return r, beta
 
 
-@partial(jax.jit, static_argnums=(2,))
 def gmres_work(A_mv, A_args, n_kry, x, r, beta):
     """
     The main loop body of GMRES. Given A, a trial solution x, the residual r,
@@ -143,6 +144,7 @@ def gmres_work(A_mv, A_args, n_kry, x, r, beta):
     update = Vk_1[:, :-1] @ y
     x = x + update
     return x
+
 
 def full_orthog(A_mv, A_args, b, n_kry, x0):
     """

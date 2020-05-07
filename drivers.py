@@ -4,6 +4,8 @@ Interface functions for VUMPS.
 import sys
 import os
 import numpy as np
+from importlib import reload
+
 
 import jax_vumps.matrices as mat
 import jax_vumps.vumps as vumps
@@ -47,6 +49,7 @@ def runvumps(H, bond_dimension: int, gradient_tol: float,
         os.environ["LINALG_BACKEND"] = "jax"
     else:
         os.environ["LINALG_BACKEND"] = "numpy"
+    reload(vumps)
     out = vumps.vumps(H, bond_dimension, gradient_tol, max_iter,
                       delta_0=delta_0, checkpoint_every=checkpoint_every,
                       out_directory=out_directory,
@@ -59,7 +62,7 @@ def vumpsXX(bond_dimension: int, gradient_tol: float,
             maxiter: int, delta_0=0.1, checkpoint_every=500,
             out_directory="./vumps",
             heff_krylov_params=vumps.krylov_params(),
-            env_solver_params=vumps.solver_params(),
+            env_solver_params=vumps.krylov_params(),
             jax_linalg=False,
             dtype=np.float32):
     """

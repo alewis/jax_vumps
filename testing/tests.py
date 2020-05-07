@@ -1,12 +1,12 @@
 import jax.numpy as jnp
 import numpy as np
 import scipy as sp
+import jax
 
-import jax_vumps.arnoldi as arnoldi
-import jax_vumps.operations as ops
-import jax_vumps.utils as utils
-import jax_vumps.gmres as gmres
-import jax_vumps.testing.vumps_tests as vumps_tests
+from jax_vumps.numpy_backend.mps_linalg import random_tensors 
+import jax_vumps.jax_backend.arnoldi as arnoldi
+import jax_vumps.jax_backend.gmres as gmres
+
 
 def errstring(arr1, name1, arr2, name2):
     """
@@ -51,11 +51,18 @@ def manyclose(pairs):
 ###############################################################################
 # OPS
 ###############################################################################
+@jax.tree_util.Partial
+@jax.jit
+def matrix_matvec(A, v):
+    return A@v
 
+
+def numpy_matrix_linop(A):
+    return sp.sparse.linalg.LinearOperator(A.shape, matvec=lambda x: A@x)
 
 def test_matrix_matvec(m, n, thresh=1E-5, verbose=False):
-    A, v = utils.random_tensors([(m, n), (n,)])
-    mv = ops.matrix_matvec
+    A, v = random_tensors([(m, n), (n,)])
+    mv = matrix_matvec
     Av_dense = A@v
     Av_sparse = mv(A, v)
     error = jnp.linalg.norm(jnp.abs(Av_dense - Av_sparse))
@@ -167,9 +174,9 @@ def do_arnoldi_vs_numpy_dense(thresh=1E-5):
         for n_kry in n_krys:
             A = np.random.rand(N, N)
             Aj = jnp.array(A)
-            jax_mv = ops.matrix_matvec
+            jax_mv = matrix_matvec
             jax_args = [Aj, ]
-            np_op = ops.numpy_matrix_linop(A)
+            np_op = numpy_matrix_linop(A)
             mepass, err = test_arnoldi_vs_numpy(jax_mv, jax_args, np_op, n_kry,
                                                 thresh=1E-5, verbose=True)
             if not mepass:
@@ -225,7 +232,7 @@ def do_arnoldi_tests_random_dense_matrices(thresh=1E-5):
         n_krys = np.arange(1, N-1, 3)
         for n_kry in n_krys:
             shapes = [(N, N), (N,)]
-            A, v0 = utils.random_tensors(shapes)
+            A, v0 = random_tensors(shapes)
             orth_pass, orth_err = test_arnoldi_orthonormality(mv, [A], n_kry,
                                                               v0,
                                                               thresh=thresh,
@@ -252,7 +259,7 @@ def do_arnoldi_tests_identity(N=3, thresh=1E-5):
     n_kry = N
     A = jnp.eye(N)
     shapes = [(N,)]
-    v0, = utils.random_tensors(shapes)
+    v0, = random_tensors(shapes)
     mv = ops.matrix_matvec
     orth_pass, orth_err = test_arnoldi_orthonormality(mv, [A], n_kry,
                                                       v0,
@@ -316,11 +323,11 @@ def test_gmres_vs_np(A, b, x0, tol=1E-5, n_kry=20, maxiter=4, thresh=1E-5,
     """
     Tests Jax GMRES against SciPy for particular input.
     """
-    np_op = ops.numpy_matrix_linop(A)
+    np_op = numpy_matrix_linop(A)
     np_x, _ = sp.sparse.linalg.gmres(np_op, b, x0=x0, tol=tol,
                                      restart=n_kry,
                                      maxiter=maxiter)
-    jax_mv = ops.matrix_matvec
+    jax_mv = matrix_matvec
     jax_x, err, n_iter, converged = gmres.gmres_m(jax_mv, [jnp.array(A), ],
                                                   jnp.array(b), jnp.array(x0), 
                                                   n_kry=n_kry, 
@@ -351,7 +358,7 @@ def do_test_gmres_simple(tol=1E-5, verbose=False):
     v0 = jnp.ones(2)
     n_kry = 2
 
-    x = gmres.gmres(ops.matrix_matvec, [A, ], b, n_kry, v0)
+    x = gmres.gmres(matrix_matvec, [A, ], b, n_kry, v0)
     solution = np.array([2., 1.])
     passed = np.allclose(x, solution)
     if passed:
@@ -359,7 +366,7 @@ def do_test_gmres_simple(tol=1E-5, verbose=False):
     else:
         print("Failed!")
         if verbose:
-            x2 = gmres.full_orthog(ops.matrix_matvec, [A, ], b, n_kry, v0)
+            x2 = gmres.full_orthog(matrix_matvec, [A, ], b, n_kry, v0)
             print("Correct x: ", solution)
             print("Jax GMRES x: ", x)
             print("Full Orthog x :", x2)
@@ -390,7 +397,7 @@ def do_test_gmres_vs_np(thresh=1E-5):
 
 def test_gmres(A, b, x0, tol=1E-5, n_kry=20, maxiter=None, thresh=1E-7,
                verbose=False):
-    jax_mv = ops.matrix_matvec(A)
+    jax_mv = matrix_matvec(A)
     jax_x, _ = gmres.gmres_m(jax_mv, [A], b, x0, tol, n_kry, maxiter)
     Ax = jax_mv(A, jax_x)
     err = jnp.linalg.norm(jnp.abs(Ax - b)) 
@@ -405,6 +412,8 @@ def test_gmres(A, b, x0, tol=1E-5, n_kry=20, maxiter=None, thresh=1E-7,
             print("Ax : ", Ax)
             print("Ax should equal b.")
     return (passed, err)
+
+
 
 
 

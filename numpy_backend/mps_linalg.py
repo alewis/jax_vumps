@@ -8,7 +8,21 @@ import scipy as sp
 from scipy.sparse.linalg import LinearOperator, eigsh
 from scipy.sparse.linalg.eigen.arpack.arpack import ArpackNoConvergence
 
-import jax_vumps.contractions as ct
+import jax_vumps.numpy_backend.contractions as ct
+
+
+def vumps_loss(A_L, A_C):
+    """
+    Norm of MPS gradient: see Appendix 4.
+    """
+    A_L_mat = fuse_left(A_L)
+    A_L_dag = A_L_mat.T.conj()
+    N_L = null_space(A_L_dag)
+    N_L_dag = N_L.T.conj()
+    A_C_mat = fuse_left(A_C)
+    B = N_L_dag @ A_C_mat
+    Bnorm = norm(B)
+    return Bnorm
 
 
 def random_tensors(shapes, dtype=np.float32, seed=None):
@@ -239,19 +253,63 @@ def gauge_match(A_C, C):
     using a polar decomposition.
     """
     Ashape = A_C.shape
+    UC, _ = polar(C, side="right")
+
     AC_mat_l = fuse_left(A_C)
-    AC_mat_r = fuse_right(A_C)
-
-    UAc_l, PAc_l = sp.linalg.polar(AC_mat_l, side="right")
-    UAc_r, PAc_r = sp.linalg.polar(AC_mat_r, side="left")
-    UC_l, PC_l = sp.linalg.polar(C, side="right")
-    UC_r, PC_r = sp.linalg.polar(C, side="left")
-
-    A_L = np.dot(UAc_l, np.conj(UC_l.T))
+    UAc_l, _ = polar(AC_mat_l, side="right")
+    A_L = UAc_l @ UC.T.conj()
     A_L = unfuse_left(A_L, Ashape)
-    A_R = np.dot(np.conj(UC_r.T), UAc_r)
+
+    AC_mat_r = fuse_right(A_C)
+    UAc_r, _ = polar(AC_mat_r, side="left")
+    A_R = UC.T.conj() @  UAc_r
     A_R = unfuse_right(A_R, Ashape)
     return (A_L, A_R)
+
+
+def polar(a, side="right", compute_p=False):
+
+    """
+    Compute the polar decomposition. This is a transcription of the
+    SciPy code - check scipy.linalg.polar for documentation.
+    """
+    if side not in ['right', 'left']:
+        raise ValueError("must be either 'right' or 'left'")
+    a = np.asarray(a)
+    if a.ndim != 2:
+        raise ValueError("must be a 2-D array.")
+
+    w, s, vh = np.linalg.svd(a, full_matrices=False)
+    u = w @ vh
+    p = 0.
+    if compute_p:
+        if side == 'right':
+            # a = up
+            p = (vh.T.conj() * s) @ vh
+        elif side == 'left':
+            # a = pu
+            p = (w * s) @ (w.T.conj())
+    return u, p
+
+#  def gauge_match(A_C, C):
+#      """
+#      Return approximately gauge-matched A_L and A_R from A_C and C
+#      using a polar decomposition.
+#      """
+#      Ashape = A_C.shape
+#      AC_mat_l = fuse_left(A_C)
+#      AC_mat_r = fuse_right(A_C)
+
+#      UAc_l, PAc_l = sp.linalg.polar(AC_mat_l, side="right")
+#      UAc_r, PAc_r = sp.linalg.polar(AC_mat_r, side="left")
+#      UC_l, PC_l = sp.linalg.polar(C, side="right")
+#      UC_r, PC_r = sp.linalg.polar(C, side="left")
+
+#      A_L = np.dot(UAc_l, np.conj(UC_l.T))
+#      A_L = unfuse_left(A_L, Ashape)
+#      A_R = np.dot(np.conj(UC_r.T), UAc_r)
+#      A_R = unfuse_right(A_R, Ashape)
+#      return (A_L, A_R)
 
 
 def tmeigs(A, B=None, nev=1, ncv=20, tol=1E-7, direction="right", v0=None,
@@ -299,3 +357,50 @@ def tmeigs(A, B=None, nev=1, ncv=20, tol=1E-7, direction="right", v0=None,
     V /= np.linalg.norm(V)
     V = V.reshape(outshape)
     return (v, V)
+
+
+def B2_variance(oldlist, newlist):
+    """
+    Given two MPS tensors in mixed canonical form, estimate the gradient
+    variance.
+
+    PARAMETERS
+    ----------
+    oldlist, newlist: Both lists [A_L, C, A_R] representing two MPS in
+                      mixed canonical form.
+
+    RETURNS
+    ------
+    B2 (float) : The gradient variance.
+    """
+    NL, NR = mps_null_spaces(oldlist)
+    AL, C, AR = newlist
+    AC = ct.rightmult(AL, C)
+    L = ct.XopL(AC, B=NL)
+    R = ct.XopR(AR, B=NR)
+    B2_tensor = L @ R.T
+    B2 = norm(B2_tensor)
+    return B2
+
+
+def twositeexpect(mpslist, H):
+    """
+    The expectation value of the operator H in the state represented
+    by A_L, C, A_R in mpslist.
+
+    RETURNS
+    -------
+    out: The expectation value.
+    """
+    A_L, C, A_R = mpslist
+    A_CR = ct.leftmult(C, A_R)
+    expect = ct.twositeexpect(A_L, A_CR, H)
+    return expect
+
+
+def mpsnorm(mpslist):
+    A_L, C, A_R = mpslist
+    A_CR = ct.leftmult(C, A_R)
+    rho = ct.rholoc(A_L, A_CR)
+    the_norm = trace(rho)
+    return the_norm.real

@@ -4,7 +4,7 @@ import scipy as sp
 from scipy.sparse.linalg import LinearOperator, lgmres, gmres
 
 import tensornetwork as tn
-import jax_vumps.contractions as ct
+import jax_vumps.numpy_backend.contractions as ct
 #  import jax_vumps.numpy_backend.mps_linalg as mps_linalg
 
 
@@ -36,19 +36,22 @@ def call_solver(op, hI, params, x0, tol):
     """
     if x0 is not None:
         x0 = x0.flatten()
-    #  x, info = gmres(op,
-    #                  hI.flatten(),
-    #                  tol=tol,
-    #                  restart=params["n_krylov"],
-    #                  maxiter=params["max_restarts"])
-    x, info = lgmres(op,
-                     hI.flatten(),
-                     tol=tol,#params["env_tol"],
-                     maxiter=params["maxiter"],
-                     inner_m=params["inner_m"],
-                     outer_k=params["outer_k"],
-                     x0=x0)
-    new_hI = x.reshape(hI.shape)
+    x, info = gmres(op,
+                    hI.flatten(),
+                    tol=tol,
+                    restart=params["n_krylov"],
+                    maxiter=params["max_restarts"],
+                    x0=x0)
+    #  x, info = lgmres(op,
+    #                   hI.flatten(),
+    #                   tol=tol,#params["env_tol"],
+    #                   maxiter=params["maxiter"],
+
+    #                   #maxiter=params["maxiter"],
+    #                   #inner_m=params["inner_m"],
+    #                   #outer_k=params["outer_k"],
+    #                   x0=x0)
+    new_hI = x.reshape(hI.shape) 
     return (new_hI, info)
 
 
@@ -70,15 +73,20 @@ def dense_LH_op(A_L, lR):
     return mat
 
 
+def prepare_for_LH_solve(A_L, H, lR):
+    hL_bare = ct.compute_hL(A_L, H)
+    hL_div = ct.proj(hL_bare, lR)*np.eye(hL_bare.shape[0])
+    hL = hL_bare - hL_div
+    return hL
+
+
 def solve_for_LH(A_L, H, lR, params, delta, oldLH=None,
                  dense=False):
     """
     Find the renormalized left environment Hamiltonian using a sparse
     solver.
     """
-    hL_bare = ct.compute_hL(A_L, H)
-    hL_div = ct.proj(hL_bare, lR)*np.eye(hL_bare.shape[0])
-    hL = hL_bare - hL_div
+    hL = prepare_for_LH_solve(A_L, H, lR)
     chi = hL.shape[0]
     tol = params["tol_coef"]*delta
 
