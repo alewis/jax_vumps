@@ -218,16 +218,13 @@ def vumps_iteration(iter_data, delta, H, heff_krylov_params,
     timing = {}
     timing["Iteration"] = benchmark.tick()
     mpslist, A_C, fpoints, H_env = iter_data
-    print("start gradient")
     mpslist, A_C, delta, grad_time = apply_gradient(iter_data, delta, H,
                                                     heff_krylov_params)
-    print("done gradient")
     timing.update(grad_time)
     fpoints = vumps_approximate_tm_eigs(mpslist[1])
     H_env, env_time = solve_environment(mpslist, delta, fpoints, H,
                                         env_solver_params,
                                         H_env=H_env)
-    print("done env")
     timing.update(env_time)
     timing["Iteration"] = benchmark.tock(timing["Iteration"], dat=H_env[0])
     return ((mpslist, A_C, fpoints, H_env), delta, timing)
