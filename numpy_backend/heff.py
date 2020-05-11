@@ -65,6 +65,7 @@ def sparse_eigensolve(func, tol, arr_shape, guess, params,
                     v0=guess.flatten(), ncv=ncv, maxiter=maxiter)
 
     w, v = mps_linalg.sortby(w.real, v, mode="SR")
+    w = w[0]
     eV = v[:, 0]
     eV = eV.reshape(arr_shape)
     return w, eV
