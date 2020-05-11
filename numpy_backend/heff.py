@@ -67,7 +67,7 @@ def sparse_eigensolve(func, tol, arr_shape, guess, params,
     w, v = mps_linalg.sortby(w.real, v, mode="SR")
     eV = v[:, 0]
     eV = eV.reshape(arr_shape)
-    return eV
+    return w, eV
 
 
 ###############################################################################
@@ -79,10 +79,10 @@ def minimize_HAc(mpslist, A_C, Hlist, delta, params):
     """
     A_L, C, A_R = mpslist
     tol = params["tol_coef"]*delta
-    A_C_prime = sparse_eigensolve(ct.apply_HAc, tol, A_C.shape, A_C,
-                                  params, A_L, A_R, Hlist, hermitian=True,
-                                  which="SA")
-    return A_C_prime.real
+    w, A_C_prime = sparse_eigensolve(ct.apply_HAc, tol, A_C.shape, A_C,
+                                     params, A_L, A_R, Hlist, hermitian=True,
+                                     which="SA")
+    return w, A_C_prime.real
 
 
 def HAc_dense_eigs(mpslist, Hlist, hermitian=True):
@@ -96,7 +96,7 @@ def HAc_dense_eigs(mpslist, Hlist, hermitian=True):
     HAc_mat = HAc.reshape((d*chi*chi, d*chi*chi))
     w, v = np.linalg.eigh(HAc_mat)
     A_C = v[:, 0].reshape(A_L.shape)
-    return A_C
+    return w, A_C
 
 
 ###############################################################################
@@ -112,10 +112,10 @@ def minimize_Hc(mpslist, Hlist, delta, params):
     else:
         bigC = C
     tol = params["tol_coef"]*delta
-    C_prime = sparse_eigensolve(ct.apply_Hc, tol, bigC.shape, bigC,
-                                params, A_L, A_R, Hlist, hermitian=True,
-                                which="SA")
-    return C_prime.real
+    w, C_prime = sparse_eigensolve(ct.apply_Hc, tol, bigC.shape, bigC,
+                                   params, A_L, A_R, Hlist, hermitian=True,
+                                   which="SA")
+    return w, C_prime.real
 
 
 

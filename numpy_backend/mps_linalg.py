@@ -247,7 +247,7 @@ def mps_null_spaces(mpslist):
     return (NL, NR)
 
 
-def gauge_match(A_C, C, gauge_via_svd=True):
+def gauge_match(A_C, C, svd=True):
     """
     Return approximately gauge-matched A_L and A_R from A_C and C
     using a polar decomposition.

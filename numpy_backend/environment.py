@@ -105,7 +105,6 @@ def solve_for_LH(A_L, H, lR, params, delta, oldLH=None,
 
 
 
-
 def RH_linear_operator(A_R, rL):
     chi = A_R.shape[1]
     """
