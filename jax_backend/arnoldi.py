@@ -5,6 +5,53 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 from jax.ops import index, index_update
+import jax_vumps.jax_backend.mps_linalg as mps_linalg
+
+
+def minimum_eigenpair(matvec, matvec_args, n_krylov, tol=1E-6, maxiter=10,
+                      v0=None, verbose=False):
+    """
+    Find the algebraically minimum eigenpair of the Hermitian operator A_op
+    using explicitly restarted Lanczos iteration.
+
+    PARAMETERS
+    ----------
+    matvec: Hermitian operator.
+    matvec_args: Fixed arguments to matvec.
+    n_krylov: Size of Krylov subspace.
+    tol: Error tolerance.
+    maxiter: The program ends after this many iterations even if unconverged.
+    v0: Guess vector.
+    """
+    if v0 is None:
+        raise NotImplementedError("Must supply v0.")
+    v = v0
+    for it in range(maxiter):
+        E, v, err = eigenpair_iteration(matvec, matvec_args, v, n_krylov)
+        #  print("LZ Iteration: ", it)
+        #  print("\t E=", E, "err= ", err)
+        if err < tol:
+            return (E, v, err)
+    if verbose:
+        print("Warning: Arnoldi solve exited without converging, err=", err)
+    return (E, v, err)
+
+
+def eigenpair_iteration(A_matvec, A_data, v, n_krylov):
+    """
+    Performs one iteration of the explicitly restarted Arnoldi method.
+    """
+    K, T = arnoldi_krylov(A_matvec, A_data, n_krylov, v)
+
+    Es, eVsT = jnp.linalg.eig(T[:-1, :])
+    w, v = mps_linalg.sortby(Es.real, eVsT, "SR")
+    min_eVT = v[:, 0]
+    E = Es[0]
+    psi = K[:, :-1] @ min_eVT
+    psi = psi / jnp.linalg.norm(psi)
+    Apsi = A_matvec(*A_data, psi)
+    err = jnp.linalg.norm(jnp.abs(E*psi - Apsi))
+    return (E, psi, err)
 
 
 @partial(jax.jit, static_argnums=(2,))

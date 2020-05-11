@@ -27,6 +27,9 @@ heff = importlib.import_module(HEFF_NAME)
 environment = importlib.import_module(ENVIRONMENT_NAME)
 ct = importlib.import_module(CONTRACTIONS_NAME)
 
+#  import jax_vumps.jax_backend.heff as jax_heff
+#  import jax_vumps.numpy_backend.heff as np_heff
+
 
 ##########################################################################
 # Functions to handle output.
@@ -133,11 +136,11 @@ def apply_gradient(iter_data, delta, H, heff_krylov_params, gauge_via_svd):
     LH, RH = H_env
     Hlist = [H, LH, RH]
     timing["HAc"] = benchmark.tick()
-    A_C = heff.minimize_HAc(mpslist, a_c, Hlist, delta, heff_krylov_params)
+    _, A_C = heff.minimize_HAc(mpslist, a_c, Hlist, delta, heff_krylov_params)
     timing["HAc"] = benchmark.tock(timing["HAc"], dat=A_C)
 
     timing["Hc"] = benchmark.tick()
-    C = heff.minimize_Hc(mpslist, Hlist, delta, heff_krylov_params)
+    _, C = heff.minimize_Hc(mpslist, Hlist, delta, heff_krylov_params)
     timing["Hc"] = benchmark.tock(timing["Hc"], dat=C)
 
     timing["Gauge Match"] = benchmark.tick()

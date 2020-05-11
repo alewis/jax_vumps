@@ -277,6 +277,13 @@ def mps_null_spaces(mpslist):
 
 
 @jax.jit
+def polarjit(A, svd):
+    U = jax.lax.cond(svd, A, polarU_SVD,
+                          A, polarU_QDWH)
+    return U
+
+
+@jax.jit
 def gauge_match(A_C, C, svd=True):
     """
     Return approximately gauge-matched A_L and A_R from A_C and C
@@ -300,18 +307,18 @@ def gauge_match(A_C, C, svd=True):
                             and ||A_C - C A_R||, with A_L and A_R
                             left (right) isometric.
     """
-    ACCd = ct.rightmult(A_C, C.T.conj())
-    ACCd = fuse_left(ACCd)
-    A_L = jax.lax.cond(svd, ACCd, polarU_SVD,
-                            ACCd, polarU_QDWH)
+    Ashape = A_C.shape
+    UC = polarjit(C, svd)
 
-    A_L = unfuse_left(A_L, A_C.shape)
+    AC_mat_l = fuse_left(A_C)
+    UAc_l = polarjit(AC_mat_l, svd)
+    A_L = UAc_l @ UC.T.conj()
+    A_L = unfuse_left(A_L, Ashape)
 
-    CdAC = ct.leftmult(C.T.conj(), A_C)
-    CdAC = fuse_right(CdAC)
-    A_R = jax.lax.cond(svd, CdAC, polarU_SVD,
-                            CdAC, polarU_QDWH)
-    A_R = unfuse_right(A_R, A_C.shape)
+    AC_mat_r = fuse_right(A_C)
+    UAc_r = polarjit(AC_mat_r, svd)
+    A_R = UC.T.conj() @  UAc_r
+    A_R = unfuse_right(A_R, Ashape)
     return (A_L, A_R)
 
 

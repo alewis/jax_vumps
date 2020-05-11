@@ -229,11 +229,13 @@ def do_compare_vumps_minimize_HAc(chi, d=2, dtype=np.complex128, thresh=1E-7):
 
     old_params = old_vumps.vumps_params()
     old_heff_params = old_vumps.extract_Heff_params(old_params, delta)
-    old_AC = old_vumps.minimize_HAc(mpslist, A_C, Hlist, old_heff_params)
+    oldw, old_AC = old_vumps.minimize_HAc(mpslist, A_C, Hlist, old_heff_params)
+    print(oldw)
 
     new_params = vumps.krylov_params()
-    newA_C = np_heff.minimize_HAc(mpslist, A_C, Hlist, delta,
-                                  new_params)
+    neww, newA_C = np_heff.minimize_HAc(mpslist, A_C, Hlist, delta,
+                                        new_params)
+    print(neww)
 
     err = np.linalg.norm(np.abs(old_AC - newA_C))
     passed = True
@@ -259,10 +261,10 @@ def do_compare_vumps_minimize_Hc(chi, d=2, dtype=np.complex128, thresh=1E-7):
 
     old_params = old_vumps.vumps_params()
     old_heff_params = old_vumps.extract_Heff_params(old_params, delta)
-    old_C = old_vumps.minimize_Hc(mpslist, Hlist, old_heff_params)
+    oldw, old_C = old_vumps.minimize_Hc(mpslist, Hlist, old_heff_params)
 
     new_params = vumps.krylov_params()
-    newC = np_heff.minimize_Hc(mpslist, Hlist, delta, new_params)
+    neww, newC = np_heff.minimize_Hc(mpslist, Hlist, delta, new_params)
 
     err = np.linalg.norm(np.abs(old_C - newC))
     passed = True
@@ -469,7 +471,7 @@ def test_solve_for_RH(d, chi, dtype=np.float32, thresh=1E-4):
 def test_minimize_Hc(d, chi, thresh=1E-4):
     print("Test minimize Hc")
     delta = thresh
-    params = vumps.krylov_params()
+    params = vumps.krylov_params(n_krylov=10, max_restarts=1)
     shapes = [(d, chi, chi), (chi, chi), (d, chi, chi), (d, d, d, d),
               (chi, chi), (chi, chi), (chi, chi)]
     A_L, C, A_R, H, LH, RH, A_C = np_linalg.random_tensors(shapes)
@@ -477,14 +479,22 @@ def test_minimize_Hc(d, chi, thresh=1E-4):
     H = 0.5*(H + H.conj().T).reshape((d, d, d, d))
     LH = 0.5*(LH + LH.conj().T)
     RH = 0.5*(RH + RH.conj().T)
+    Hlist = [H, LH, RH]
+    mpslist = [A_L, C, A_R]
+    jevC, jC = jax_heff.minimize_Hc(mpslist, Hlist, delta, params)
+    jevC = float(jevC)
+    jC = np.array(jC)
+    print("Jax ev: ", jevC)
+    print("Err jaxC: ", np.linalg.norm(ct.apply_Hc(jC, A_L, A_R, Hlist) - jevC*jC))
 
-    A_Lj, Cj, A_Rj, Hj, LHj, RHj = [jnp.array(x) for x in [A_L, C, A_R, H, LH, RH]]
-    npout = np_heff.minimize_Hc([A_L, C, A_R], [H, LH, RH], delta, params)
-    jaxout = jax_heff.minimize_Hc([A_Lj, Cj, A_Rj], [Hj, LHj, RHj], delta, params)
-    err = np.linalg.norm(np.abs(jaxout - npout))/jaxout.size
-    if err > thresh or jnp.any(jnp.isnan(jaxout)):
-        print("FAILED with err: ", err)
-    else:
-        print("Passed!")
+    #  A_Lj, Cj, A_Rj, Hj, LHj, RHj = [jnp.array(x) for x in [A_L, C, A_R, H, LH, RH]]
+    #  npev, npC = np_heff.minimize_Hc(mpslist, Hlist, delta, params)
+    #  print("npev: ", npev)
+    #  print("Err npC: ", np.linalg.norm(ct.apply_Hc(npC, A_L, A_R, Hlist) - npev*npC))
+    #  err = np.linalg.norm(np.abs(jaxout - npout))/jaxout.size
+    #  if err > thresh or jnp.any(jnp.isnan(jaxout)):
+    #      print("FAILED with err: ", err)
+    #  else:
+    #      print("Passed!")
 
 
