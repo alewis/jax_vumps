@@ -16,6 +16,7 @@ def runvumps(H, bond_dimension: int, gradient_tol: float,
              out_directory="./vumps_output",
              heff_krylov_params=vumps.krylov_params(),
              env_solver_params=vumps.solver_params(),
+             gauge_via_svd = True,
              jax_linalg=False):
 
     """
@@ -42,6 +43,15 @@ def runvumps(H, bond_dimension: int, gradient_tol: float,
     env_solver_params      : Hyperparameters for a linear solve that finds
                              the effective Hamiltonians. Formed by
                              'solver_params()'.
+    gauge_via_svd (bool, True): With the Jax backend, toggles whether the gauge
+                                match at the
+                                end of each iteration is computed using
+                                an SVD or the QDWH-based polar decomposition.
+                                The former is typically faster on the CPU
+                                or TPU, but the latter is much faster on the
+                                GPU. With the NumPy backend, this
+                                parameter has no effect and the SVD is always
+                                used.
     jax_linalg (bool)   : Determines whether Jax or numpy code is used in
                           certain linear algebra calls.
     """
@@ -54,6 +64,7 @@ def runvumps(H, bond_dimension: int, gradient_tol: float,
                       delta_0=delta_0, checkpoint_every=checkpoint_every,
                       out_directory=out_directory,
                       heff_krylov_params=heff_krylov_params,
+                      gauge_via_svd = gauge_via_svd,
                       env_solver_params=env_solver_params)
     return out
 
@@ -63,6 +74,7 @@ def vumpsXX(bond_dimension: int, gradient_tol: float,
             out_directory="./vumps",
             heff_krylov_params=vumps.krylov_params(),
             env_solver_params=vumps.krylov_params(),
+            gauge_via_svd = True,
             jax_linalg=False,
             dtype=np.float32):
     """
@@ -75,6 +87,7 @@ def vumpsXX(bond_dimension: int, gradient_tol: float,
                    out_directory=out_directory,
                    heff_krylov_params=heff_krylov_params,
                    env_solver_params=env_solver_params,
+                   gauge_via_svd = gauge_via_svd,
                    jax_linalg=jax_linalg)
     return out
 

@@ -121,7 +121,7 @@ def solve_environment(mpslist, delta, fpoints, H, env_solver_params,
 ###############################################################################
 
 
-def apply_gradient(iter_data, delta, H, heff_krylov_params):
+def apply_gradient(iter_data, delta, H, heff_krylov_params, gauge_via_svd):
     """
     Apply the MPS gradient.
     """
@@ -141,7 +141,7 @@ def apply_gradient(iter_data, delta, H, heff_krylov_params):
     timing["Hc"] = benchmark.tock(timing["Hc"], dat=C)
 
     timing["Gauge Match"] = benchmark.tick()
-    A_L, A_R = mps_linalg.gauge_match(A_C, C)
+    A_L, A_R = mps_linalg.gauge_match(A_C, C, svd=gauge_via_svd)
     timing["Gauge Match"] = benchmark.tock(timing["Gauge Match"], dat=A_L)
 
     timing["Loss"] = benchmark.tick()
@@ -211,7 +211,7 @@ def vumps_initialization(d: int, chi: int, dtype=np.float32):
 
 
 def vumps_iteration(iter_data, delta, H, heff_krylov_params,
-                    env_solver_params):
+                    env_solver_params, gauge_via_svd):
     """
     One main iteration of VUMPS.
     """
@@ -219,7 +219,8 @@ def vumps_iteration(iter_data, delta, H, heff_krylov_params,
     timing["Iteration"] = benchmark.tick()
     mpslist, A_C, fpoints, H_env = iter_data
     mpslist, A_C, delta, grad_time = apply_gradient(iter_data, delta, H,
-                                                    heff_krylov_params)
+                                                    heff_krylov_params,
+                                                    gauge_via_svd)
     timing.update(grad_time)
     fpoints = vumps_approximate_tm_eigs(mpslist[1])
     H_env, env_time = solve_environment(mpslist, delta, fpoints, H,
@@ -263,7 +264,7 @@ def krylov_params(n_krylov=40, max_restarts=100, tol_coef=0.01):
 def solver_params(inner_m=30, outer_k=10, maxiter=100, tol_coef=0.01):
     """
     Bundles parameters for the (L)GMRES linear solver. These control the
-    expense of finding the left and right environment Hamiltonians. 
+    expense of finding the left and right environment Hamiltonians.
     For GMRES, these are in fact the same parameters as used in the Lanczos
     solve, but when/if we generalize to LGMRES they will not be.
 
@@ -283,6 +284,7 @@ def vumps(H, chi: int, gradient_tol: float, max_iter: int,
           delta_0=0.1,
           checkpoint_every=500,
           out_directory="./vumps",
+          gauge_via_svd=True,
           heff_krylov_params=krylov_params(),
           env_solver_params=krylov_params()):
     # env_solver_params=solver_params()):
@@ -307,6 +309,15 @@ def vumps(H, chi: int, gradient_tol: float, max_iter: int,
     checkpoint_every (int) : Simulation data is pickled at this periodicity.
     out_directory (string) : Output is saved here. The directory is created
                              if it doesn't exist.
+    gauge_via_svd (bool, True): With the Jax backend, toggles whether the gauge
+                                match at the
+                                end of each iteration is computed using
+                                an SVD or the QDWH-based polar decomposition.
+                                The former is typically faster on the CPU
+                                or TPU, but the latter is much faster on the
+                                GPU. With the NumPy backend, this
+                                parameter has no effect and the SVD is always
+                                used.
     heff_krylov_params(dict):Hyperparameters for an eigensolve of certain
                              'effective Hamiltonians'. Formed by
                              'krylov_params()'.
@@ -345,7 +356,8 @@ def vumps(H, chi: int, gradient_tol: float, max_iter: int,
         oldlist = copy.deepcopy(mpslist)
         iter_data, delta, iter_time = vumps_iteration(iter_data, delta, H,
                                                       heff_krylov_params,
-                                                      env_solver_params)
+                                                      env_solver_params,
+                                                      gauge_via_svd)
         timing.update(iter_time)
 
         E, norm, tD = diagnostics(oldlist, H, iter_data)
