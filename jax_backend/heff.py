@@ -11,16 +11,17 @@ TN_JAX_BACKEND = tn.backends.backend_factory.get_backend('jax')
 
 def minimum_eigenpair(matvec, mv_args, guess, tol, max_restarts=100,
                       n_krylov=40, reorth=True, n_diag=10, verbose=True,
-                      A_norm = None):
+                      A_norm=None):
     eV = guess
+    Ax = matvec(eV, *mv_args)
     tol = max(tol, jnp.finfo(guess.dtype).eps)
+    tolarr = jnp.array(tol)
     for j in range(max_restarts):
         out = TN_JAX_BACKEND.eigsh_lanczos(matvec, mv_args,
                                            initial_state=eV,
                                            numeig=1,
                                            num_krylov_vecs=n_krylov,
                                            ndiag=n_diag,
-                                           tol=tol,
                                            reorthogonalize=reorth)
         ev, eV = out
         ev = ev[0]
@@ -29,8 +30,6 @@ def minimum_eigenpair(matvec, mv_args, guess, tol, max_restarts=100,
         e_eV = ev * eV
         rho = jnp.linalg.norm(jnp.abs(Ax - e_eV))
         err = rho  # / jnp.linalg.norm(e_eV)
-        if A_norm is not None:
-            err /= A_norm
         if err <= tol:
             return (ev, eV, err)
     if verbose:
@@ -128,8 +127,6 @@ def minimize_Hc(mpslist, Hlist, delta, params):
     A_L, C, A_R = mpslist
     tol = params["tol_coef"]*delta
     mv_args = [A_L, A_R, Hlist]
-    maxs = [jnp.amax(A) for A in [A_L, A_R, *Hlist]]
-    #A_norm = ct.Hc_norm_est(*mv_args)
     ev, newC, err = minimum_eigenpair(ct.apply_Hc, mv_args, C, tol,
                                       max_restarts=params["max_restarts"],
                                       n_krylov=params["n_krylov"],

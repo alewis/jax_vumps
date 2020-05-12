@@ -74,7 +74,7 @@ def prepare_for_LH_solve(A_L, H, lR):
     solve_for_LH.
     """
     hL_bare = ct.compute_hL(A_L, H)
-    hL_div = ct.proj(hL_bare, lR)*jnp.eye(hL_bare.shape[0])
+    hL_div = ct.proj(hL_bare, lR)*jnp.eye(hL_bare.shape[0], dtype=A_L.dtype)
     hL = hL_bare - hL_div
     return hL
 
@@ -115,7 +115,7 @@ def prepare_for_RH_solve(A_R, H, rL):
     solve_for_RH.
     """
     hR_bare = ct.compute_hR(A_R, H)
-    hR_div = ct.proj(rL, hR_bare)*jnp.eye(hR_bare.shape[0])
+    hR_div = ct.proj(rL, hR_bare)*jnp.eye(hR_bare.shape[0], dtype=A_R.dtype)
     hR = hR_bare - hR_div
     return hR
 

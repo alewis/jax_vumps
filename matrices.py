@@ -114,7 +114,7 @@ def H_ising(J, h, jax=True, dtype=np.float32):
     X = sigX(jax=False, dtype=dtype)
     Z = sigZ(jax=False, dtype=dtype)
     ham = J*np.kron(X, X) + h*np.kron(Z, np.eye(2, dtype=dtype))
-    ham = ham.reshape(2, 2, 2, 2)
+    ham = ham.reshape(2, 2, 2, 2).astype(dtype)
     if jax:
         ham = jnp.array(ham)
     return ham
@@ -136,7 +136,7 @@ def H_XXZ(delta=1, ud=2, scale=1, jax=True, dtype=np.float32):
     UD = ud * (np.kron(U, D) + np.kron(D, U))
     H = UD + delta * np.kron(Z, Z)
     H *= -(1/(8*scale))
-    H = H.reshape(2, 2, 2, 2)
+    H = H.reshape(2, 2, 2, 2).astype(dtype)
     if jax:
         H = jnp.array(H)
     return H
@@ -154,7 +154,7 @@ def H_XX(jax=True, dtype=np.float32):
     X = sigX(jax=False, dtype=dtype)
     Y = sigY(jax=False, dtype=dtype)
     H = np.kron(X, X) + np.kron(Y, Y)
-    H = H.reshape(2, 2, 2, 2).real
+    H = H.reshape(2, 2, 2, 2).real.astype(dtype)
     if jax:
         H = jnp.array(H)
     return H

@@ -8,7 +8,7 @@ from jax_vumps.writer import Writer
 import jax_vumps.benchmark as benchmark
 import jax.config
 
-import jax_vumps.jax_backend.heff as jax_heff
+#import jax_vumps.jax_backend.heff as jax_heff
 
 try:
     ENVIRON_NAME = os.environ["LINALG_BACKEND"]
@@ -29,7 +29,7 @@ heff = importlib.import_module(HEFF_NAME)
 environment = importlib.import_module(ENVIRONMENT_NAME)
 ct = importlib.import_module(CONTRACTIONS_NAME)
 
-jax.config.update("jax_enable_x64", True)
+#jax.config.update("jax_enable_x64", True)
 
 #  import jax_vumps.numpy_backend.heff as np_heff
 
@@ -401,12 +401,10 @@ def vumps(H, chi: int, gradient_tol: float, max_iter: int,
         output(writer, Niter, delta, E, dE, norm, timing)
         deltas.append(delta)
 
-
         if delta <= gradient_tol:
             writer.write("Convergence achieved at iteration " + str(Niter))
             break
 
-        
         if checkpoint_every is not None and (Niter+1) % checkpoint_every == 0:
             writer.write("Checkpointing...")
             writer.pickle(iter_data, Niter)
