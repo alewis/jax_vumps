@@ -468,29 +468,49 @@ def test_solve_for_RH(d, chi, dtype=np.float32, thresh=1E-4):
 
 
 
-def test_minimize_Hc(d, chi, thresh=1E-4):
+def test_minimize_Hc(d, chi, thresh=1E-4, n_krylov=30, max_restarts=10,
+                     tols = [0.1, 0.01, 0.001, 0.0001, 1E-5, 1E-6], dtype=np.float32):
     print("Test minimize Hc")
     delta = thresh
-    params = vumps.krylov_params(n_krylov=10, max_restarts=1)
-    shapes = [(d, chi, chi), (chi, chi), (d, chi, chi), (d, d, d, d),
-              (chi, chi), (chi, chi), (chi, chi)]
-    A_L, C, A_R, H, LH, RH, A_C = np_linalg.random_tensors(shapes)
-    H = H.reshape((d**2, d**2))
+    env_solver_params = vumps.gmres_params()
+    H = np.random.rand(d, d, d, d).astype(dtype)
     H = 0.5*(H + H.conj().T).reshape((d, d, d, d))
-    LH = 0.5*(LH + LH.conj().T)
-    RH = 0.5*(RH + RH.conj().T)
+    mpslist, A_C, fpoints = vumps.vumps_initialization(d, chi, dtype=dtype)
+    H_env, env_init_time = vumps.solve_environment(mpslist,
+                                                   delta, fpoints, H,
+                                                   env_solver_params)
+    LH, RH = H_env
     Hlist = [H, LH, RH]
-    mpslist = [A_L, C, A_R]
-    jevC, jC = jax_heff.minimize_Hc(mpslist, Hlist, delta, params)
-    jevC = float(jevC)
-    jC = np.array(jC)
-    print("Jax ev: ", jevC)
-    print("Err jaxC: ", np.linalg.norm(ct.apply_Hc(jC, A_L, A_R, Hlist) - jevC*jC))
+    A_L, C, A_R = mpslist
 
-    #  A_Lj, Cj, A_Rj, Hj, LHj, RHj = [jnp.array(x) for x in [A_L, C, A_R, H, LH, RH]]
-    #  npev, npC = np_heff.minimize_Hc(mpslist, Hlist, delta, params)
-    #  print("npev: ", npev)
-    #  print("Err npC: ", np.linalg.norm(ct.apply_Hc(npC, A_L, A_R, Hlist) - npev*npC))
+
+    for tol in tols:
+        print("**********************************************************")
+        print("Tol :", tol)
+        params = vumps.krylov_params(n_krylov=n_krylov, tol_coef=1.,
+                                     max_restarts=max_restarts)
+        jevC, jC = jax_heff.minimize_Hc(mpslist, Hlist, tol, params)
+        jC = np.array(jC)
+        print("Jax ev: ", jevC)
+        err_jax = np.linalg.norm(ct.apply_Hc(jC, A_L, A_R, Hlist) - jevC*jC)
+        errr_jax = err_jax / np.linalg.norm(jevC*jC)
+        print("Err jaxC: ", err_jax) 
+        print("Errr jaxC: ", errr_jax) 
+        if err_jax > tol:
+            print("Jax FAILED!")
+        else:
+            print("Jax Passed!")
+
+        npev, npC = np_heff.minimize_Hc(mpslist, Hlist, tol, params)
+        print("npev: ", npev)
+        err_np = np.linalg.norm(ct.apply_Hc(npC, A_L, A_R, Hlist) - npev*npC)
+        errr_np = err_np / np.linalg.norm(npev*npC)
+        print("Err npC: ", err_np)
+        print("Errr npC: ", errr_np)
+        if err_np > tol:
+            print("Numpy FAILED!")
+        else:
+            print("Numpy Passed!")
     #  err = np.linalg.norm(np.abs(jaxout - npout))/jaxout.size
     #  if err > thresh or jnp.any(jnp.isnan(jaxout)):
     #      print("FAILED with err: ", err)

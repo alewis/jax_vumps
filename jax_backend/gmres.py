@@ -9,7 +9,7 @@ import jax_vumps.jax_backend.arnoldi as arnoldi
 
 
 def gmres_m(A_mv, A_args, b, x0, n_kry=20, max_restarts=None, tol=1E-6,
-            M=None, verbose=False):
+            M=None, verbose=False, A_norm=None):
     """
     Solve A x = b for x using the restarted GMRES method.
 
@@ -37,6 +37,11 @@ def gmres_m(A_mv, A_args, b, x0, n_kry=20, max_restarts=None, tol=1E-6,
                                      many
                                      restarts even if unconverged.
     tol                 : Error threshold.
+    A_norm (float, None): An order-of-magnitude estimate of the norm of A.
+                          The magnitude of the largest element of A is usually
+                          a reasonable estimate. When supplied, this is used
+                          to compute the stopping criterion. Otherwise a 
+                          different, stricter criterion is used.
     M : Inverse of the preconditioner of A. Presently unsupported.
 
 
@@ -98,7 +103,7 @@ def gmres_m(A_mv, A_args, b, x0, n_kry=20, max_restarts=None, tol=1E-6,
         r, beta = gmres_residual(A_mv, A_args, b, x)
         beta_rel = beta / jnp.linalg.norm(b)
         n_iter = n + 1
-        if beta < tol or beta_rel < tol:
+        if beta_rel < tol:
             converged = True
             break
 

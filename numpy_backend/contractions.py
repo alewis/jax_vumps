@@ -254,13 +254,32 @@ def apply_Hc(C, A_L, A_R, Hlist):
     A_Lstar = A_L.conj()
     A_C = rightmult(A_L, C)
     to_contract = [A_C, A_Lstar, A_R, A_R.conj(), H]
-    idxs = [(4, 1, 3),
-            (6, 1, -1),
-            (5, 3, 2),
-            (7, -2, 2),
-            (6, 7, 4, 5)]
+    idxs = [(2, 4, 1),
+            (5, 4, -1),
+            (3, 1, 6),
+            (7, -2, 6),
+            (5, 7, 2, 3)]
     term1 = tn.ncon(to_contract, idxs, backend="numpy")
     term2 = LH @ C
     term3 = C @ RH.T
     C_prime = term1 + term2 + term3
     return C_prime
+
+#  def apply_Hc(C, A_L, A_R, Hlist):
+#      """
+#      Compute C' via eq 16 of vumps paper (132 of tangent space methods).
+#      """
+#      H, LH, RH = Hlist
+#      A_Lstar = A_L.conj()
+#      A_C = rightmult(A_L, C)
+#      to_contract = [A_C, A_Lstar, A_R, A_R.conj(), H]
+#      idxs = [(4, 1, 3),
+#              (6, 1, -1),
+#              (5, 3, 2),
+#              (7, -2, 2),
+#              (6, 7, 4, 5)]
+#      term1 = tn.ncon(to_contract, idxs, backend="numpy")
+#      term2 = LH @ C
+#      term3 = C @ RH.T
+#      C_prime = term1 + term2 + term3
+#      return C_prime

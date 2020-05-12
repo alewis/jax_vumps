@@ -36,22 +36,22 @@ def call_solver(op, hI, params, x0, tol):
     """
     if x0 is not None:
         x0 = x0.flatten()
-    x, info = gmres(op,
-                    hI.flatten(),
-                    tol=tol,
-                    restart=params["n_krylov"],
-                    maxiter=params["max_restarts"],
-                    x0=x0)
-    #  x, info = lgmres(op,
-    #                   hI.flatten(),
-    #                   tol=tol,#params["env_tol"],
-    #                   maxiter=params["maxiter"],
-
-    #                   #maxiter=params["maxiter"],
-    #                   #inner_m=params["inner_m"],
-    #                   #outer_k=params["outer_k"],
-    #                   x0=x0)
-    new_hI = x.reshape(hI.shape) 
+    if params["solver"] == "gmres":
+        x, info = gmres(op,
+                        hI.flatten(),
+                        tol=tol,
+                        restart=params["n_krylov"],
+                        maxiter=params["max_restarts"],
+                        x0=x0)
+    elif params["solver"] == "lgmres":
+        x, info = lgmres(op,
+                         hI.flatten(),
+                         tol=tol,
+                         maxiter=params["maxiter"],
+                         inner_m=params["inner_m"],
+                         outer_k=params["outer_k"],
+                         x0=x0)
+    new_hI = x.reshape(hI.shape)
     return (new_hI, info)
 
 

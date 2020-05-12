@@ -14,6 +14,7 @@ Conventions
 """
 import tensornetwork as tn
 import jax
+import jax.numpy as jnp
 
 
 @jax.jit
@@ -295,6 +296,29 @@ def apply_HAc(A_C, A_L, A_R, Hlist):
     return A_C_prime
 
 
+#  @jax.jit
+#  def Hc_norm_est(A_L, A_R, Hlist):
+#      """
+#      Approximate norm of the effective Hamiltonian for Hc. This will be an
+#      overestimate, and usually a small one.
+#      """
+#      return [jnp.amax(A) for A in [A_L, A_R, *Hlist]])
+    #  H, LH, RH = Hlist
+    #  A_Lstar = A_L.conj()
+    #  to_contract = [A_L, A_Lstar, A_R, A_R.conj(), H]
+    #  idxs = [(2, 4, 1),
+    #          (5, 4, 8),
+    #          (3, 1, 6),
+    #          (7, 8, 6),
+    #          (5, 7, 2, 3)]
+    #  term1 = tn.ncon(to_contract, idxs, backend="jax")
+    #  mat2 = LH + RH.T
+    #  chi = A_L.shape[2]
+    #  term2 = jnp.sqrt(chi*jnp.sum(jnp.abs(mat2)**2))
+    #  Hc_norm = term1 + term2
+    #return Hc_norm
+
+
 @jax.jit
 def apply_Hc(C, A_L, A_R, Hlist):
     """
@@ -304,11 +328,11 @@ def apply_Hc(C, A_L, A_R, Hlist):
     A_Lstar = A_L.conj()
     A_C = rightmult(A_L, C)
     to_contract = [A_C, A_Lstar, A_R, A_R.conj(), H]
-    idxs = [(4, 1, 3),
-            (6, 1, -1),
-            (5, 3, 2),
-            (7, -2, 2),
-            (6, 7, 4, 5)]
+    idxs = [(2, 4, 1),
+            (5, 4, -1),
+            (3, 1, 6),
+            (7, -2, 6),
+            (5, 7, 2, 3)]
     term1 = tn.ncon(to_contract, idxs, backend="jax")
     term2 = LH @ C
     term3 = C @ RH.T

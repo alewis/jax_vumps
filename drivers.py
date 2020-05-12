@@ -15,8 +15,8 @@ def runvumps(H, bond_dimension: int, gradient_tol: float,
              max_iter: int, delta_0=0.1, checkpoint_every=500,
              out_directory="./vumps_output",
              heff_krylov_params=vumps.krylov_params(),
-             env_solver_params=vumps.solver_params(),
-             gauge_via_svd = True,
+             env_solver_params=vumps.gmres_params(),
+             gauge_via_svd=True,
              jax_linalg=False):
 
     """
@@ -64,7 +64,7 @@ def runvumps(H, bond_dimension: int, gradient_tol: float,
                       delta_0=delta_0, checkpoint_every=checkpoint_every,
                       out_directory=out_directory,
                       heff_krylov_params=heff_krylov_params,
-                      gauge_via_svd = gauge_via_svd,
+                      gauge_via_svd=gauge_via_svd,
                       env_solver_params=env_solver_params)
     return out
 
@@ -73,8 +73,8 @@ def vumpsXX(bond_dimension: int, gradient_tol: float,
             maxiter: int, delta_0=0.1, checkpoint_every=500,
             out_directory="./vumps",
             heff_krylov_params=vumps.krylov_params(),
-            env_solver_params=vumps.krylov_params(),
-            gauge_via_svd = True,
+            env_solver_params=vumps.gmres_params(),
+            gauge_via_svd=True,
             jax_linalg=False,
             dtype=np.float32):
     """
@@ -87,11 +87,32 @@ def vumpsXX(bond_dimension: int, gradient_tol: float,
                    out_directory=out_directory,
                    heff_krylov_params=heff_krylov_params,
                    env_solver_params=env_solver_params,
-                   gauge_via_svd = gauge_via_svd,
+                   gauge_via_svd=gauge_via_svd,
                    jax_linalg=jax_linalg)
     return out
 
 
+def vumps_ising(J, h, bond_dimension: int, gradient_tol: float,
+                maxiter: int, delta_0=0.1, checkpoint_every=500,
+                out_directory="./vumps",
+                heff_krylov_params=vumps.krylov_params(),
+                env_solver_params=vumps.gmres_params(),
+                gauge_via_svd=True,
+                jax_linalg=False,
+                dtype=np.float32):
+    """
+    Performs a vumps simulation of the XX model,
+    H = XX + YY. Parameters are the same as in runvumps.
+    """
+    H = mat.H_ising(J, h, jax=jax_linalg, dtype=dtype)
+    out = runvumps(H, bond_dimension, gradient_tol, maxiter, delta_0=delta_0,
+                   checkpoint_every=checkpoint_every,
+                   out_directory=out_directory,
+                   heff_krylov_params=heff_krylov_params,
+                   env_solver_params=env_solver_params,
+                   gauge_via_svd=gauge_via_svd,
+                   jax_linalg=jax_linalg)
+    return out
 #  def vumps_XXZ(bond_dimension, gradient_tol=1E-4, maxiter=100,
 #                path="/testout/np_vumps_xxz",
 #                delta=1, ud=2, scale=1, jax=True, dtype=np.float32):

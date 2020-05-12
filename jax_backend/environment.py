@@ -28,14 +28,17 @@ def call_solver(matvec, matvec_args, hI, params, x0, tol):
         x0, = mps_linalg.random_tensors([hI.shape, ], dtype=hI.dtype)
     x0 = x0.flatten()
 
-    solver_out = gmres.gmres_m(matvec,
-                               matvec_args,
-                               hI.flatten(),
-                               x0,
-                               tol=tol,
-                               n_kry=params["n_krylov"],
-                               max_restarts=params["max_restarts"],
-                               verbose=True)
+    if params["solver"] == "gmres":
+        solver_out = gmres.gmres_m(matvec,
+                                   matvec_args,
+                                   hI.flatten(),
+                                   x0,
+                                   tol=tol,
+                                   n_kry=params["n_krylov"],
+                                   max_restarts=params["max_restarts"],
+                                   verbose=True)
+    elif params["solver"] == "lgmres":
+        raise NotImplementedError("lgmres not implemented in Jax.")
     x, err_rel, n_iter, converged = solver_out
     #  x, info = lgmres(op,
     #                  hI.flatten(),
