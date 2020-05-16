@@ -6,19 +6,18 @@ import os
 import numpy as np
 from importlib import reload
 
+import pickle as pkl
 
 import jax_vumps.matrices as mat
 import jax_vumps.vumps as vumps
+import jax_vumps.params as params
 
 
-def runvumps(H, bond_dimension: int, gradient_tol: float,
-             max_iter: int, delta_0=0.1, checkpoint_every=500,
-             out_directory="./vumps_output",
-             heff_krylov_params=vumps.krylov_params(),
-             env_solver_params=vumps.gmres_params(),
-             gauge_via_svd=True,
-             jax_linalg=False):
-
+def runvumps(H, bond_dimension: int, delta_0=0.1,
+             out_directory="./vumps_output", jax_linalg=True,
+             vumps_params=params.vumps_params(),
+             heff_params=params.krylov_params(),
+             env_params=params.gmres_params()):
     """
     Performs a vumps simulation of some Hamiltonian H.
 
@@ -26,93 +25,107 @@ def runvumps(H, bond_dimension: int, gradient_tol: float,
     ----------
     H (array, dxdxdxd): The Hamiltonian to be simulated.
     bond_dimension (int): Bond dimension of the MPS.
-    gradient_tol (float): VUMPS will terminate once the MPS gradient reaches
-                          this tolerance.
-    max_iter (int)       : VUMPS will terminate after this many iterations
-                          even if tolerance has not been reached.
     delta_0 (float)        : Initial value for the gradient norm. The
                              convergence thresholds of the various solvers at
                              the initial step are proportional to this, via
                              coefficients in the Krylov and solver param dicts.
-    checkpoint_every (int) : Simulation data is pickled at this periodicity.
     out_directory (string) : Output is saved here. The directory is created
                              if it doesn't exist.
-    heff_krylov_params(dict):Hyperparameters for an eigensolve of certain
-                             'effective Hamiltonians'. Formed by
-                             'krylov_params()'.
-    env_solver_params      : Hyperparameters for a linear solve that finds
-                             the effective Hamiltonians. Formed by
-                             'solver_params()'.
-    gauge_via_svd (bool, True): With the Jax backend, toggles whether the gauge
-                                match at the
-                                end of each iteration is computed using
-                                an SVD or the QDWH-based polar decomposition.
-                                The former is typically faster on the CPU
-                                or TPU, but the latter is much faster on the
-                                GPU. With the NumPy backend, this
-                                parameter has no effect and the SVD is always
-                                used.
     jax_linalg (bool)   : Determines whether Jax or numpy code is used in
                           certain linear algebra calls.
+    vumps_params (dict)    : Hyperparameters for the vumps solver. Formed
+                             by 'vumps_params'.
+    heff_params (dict)     : Hyperparameters for an eigensolve of certain
+                             'effective Hamiltonians'. Formed by
+                             'krylov_params()'.
+    env_params (dict)      : Hyperparameters for a linear solve that finds
+                             the effective Hamiltonians. Formed by
+                             'solver_params()'.
     """
     if jax_linalg:
         os.environ["LINALG_BACKEND"] = "jax"
     else:
         os.environ["LINALG_BACKEND"] = "numpy"
     reload(vumps)
-    out = vumps.vumps(H, bond_dimension, gradient_tol, max_iter,
-                      delta_0=delta_0, checkpoint_every=checkpoint_every,
+    out = vumps.vumps(H, bond_dimension, delta_0=0.1,
                       out_directory=out_directory,
-                      heff_krylov_params=heff_krylov_params,
-                      gauge_via_svd=gauge_via_svd,
-                      env_solver_params=env_solver_params)
+                      vumps_params=vumps_params,
+                      heff_params=heff_params,
+                      env_params=env_params)
     return out
 
 
-def vumpsXX(bond_dimension: int, gradient_tol: float,
-            maxiter: int, delta_0=0.1, checkpoint_every=500,
-            out_directory="./vumps",
-            heff_krylov_params=vumps.krylov_params(),
-            env_solver_params=vumps.gmres_params(),
-            gauge_via_svd=True,
-            jax_linalg=False,
-            dtype=np.float32):
+def vumps_XX(bond_dimension: int, delta_0=0.1,
+             out_directory="./vumps", jax_linalg=True,
+             dtype=np.float32,
+             vumps_params=params.vumps_params(),
+             heff_params=params.krylov_params(),
+             env_params=params.gmres_params()):
     """
     Performs a vumps simulation of the XX model,
     H = XX + YY. Parameters are the same as in runvumps.
     """
     H = mat.H_XX(jax=jax_linalg, dtype=dtype)
-    out = runvumps(H, bond_dimension, gradient_tol, maxiter, delta_0=delta_0,
-                   checkpoint_every=checkpoint_every,
-                   out_directory=out_directory,
-                   heff_krylov_params=heff_krylov_params,
-                   env_solver_params=env_solver_params,
-                   gauge_via_svd=gauge_via_svd,
-                   jax_linalg=jax_linalg)
+    out = runvumps(H, bond_dimension, delta_0=delta_0,
+                   out_directory=out_directory, jax_linalg=jax_linalg,
+                   vumps_params=vumps_params, heff_params=heff_params,
+                   env_params=env_params)
     return out
 
 
-def vumps_ising(J, h, bond_dimension: int, gradient_tol: float,
-                maxiter: int, delta_0=0.1, checkpoint_every=500,
-                out_directory="./vumps",
-                heff_krylov_params=vumps.krylov_params(),
-                env_solver_params=vumps.gmres_params(),
-                gauge_via_svd=True,
-                jax_linalg=False,
-                dtype=np.float32):
+def vumps_ising(J, h, bond_dimension: int, delta_0=0.1,
+                out_directory="./vumps", jax_linalg=True,
+                dtype=np.float32,
+                vumps_params=params.vumps_params(),
+                heff_params=params.krylov_params(),
+                env_params=params.gmres_params()):
     """
     Performs a vumps simulation of the XX model,
     H = XX + YY. Parameters are the same as in runvumps.
     """
     H = mat.H_ising(J, h, jax=jax_linalg, dtype=dtype)
-    out = runvumps(H, bond_dimension, gradient_tol, maxiter, delta_0=delta_0,
-                   checkpoint_every=checkpoint_every,
-                   out_directory=out_directory,
-                   heff_krylov_params=heff_krylov_params,
-                   env_solver_params=env_solver_params,
-                   gauge_via_svd=gauge_via_svd,
-                   jax_linalg=jax_linalg)
+    out = runvumps(H, bond_dimension, delta_0=delta_0,
+                   out_directory=out_directory, jax_linalg=jax_linalg,
+                   vumps_params=vumps_params, heff_params=heff_params,
+                   env_params=env_params)
     return out
+
+
+def vumps_from_checkpoint(checkpoint_path, out_directory="./vumps_load",
+                          new_vumps_params=None, new_heff_params=None,
+                          new_env_params=None):
+    """
+    Find the ground state of a uniform two-site Hamiltonian
+    using Variational Uniform Matrix Product States. This is a gradient
+    descent method minimizing the distance between a given MPS and the
+    best approximation to the physical ground state at its bond dimension.
+
+    This interface function initializes vumps from checkpointed data.
+
+    PARAMETERS
+    ----------
+    checkpoint_path (string): Path to the checkpoint .pkl file.
+    """
+    writer = vumps.make_writer(out_directory)
+    with open(checkpoint_path, "rb") as f:
+        chk = pkl.load(f)
+
+    H, iter_data, vumps_params, heff_params, env_params, Niter = chk
+    if new_vumps_params is not None:
+        vumps_params = {**vumps_params, **new_vumps_params}
+
+    if new_heff_params is not None:
+        heff_params = {**heff_params, **new_heff_params}
+
+    if new_env_params is not None:
+        env_params = {**env_params, **new_env_params}
+
+    out = vumps.vumps_work(H, iter_data, vumps_params, heff_params, env_params,
+                           writer, Niter0=Niter)
+    return out
+
+
+
 #  def vumps_XXZ(bond_dimension, gradient_tol=1E-4, maxiter=100,
 #                path="/testout/np_vumps_xxz",
 #                delta=1, ud=2, scale=1, jax=True, dtype=np.float32):

@@ -204,18 +204,30 @@ def lqpos(mps):
     return (L, mps_R)
 
 
-@jax.jit
-def null_space(A):
-    """
-    The scipy code to compute the null space of a matrix.
-    """
-    u, s, vh = jnp.linalg.svd(A, full_matrices=True)
-    M, N = u.shape[0], vh.shape[1]
-    rcond = jnp.finfo(s.dtype).eps * max(M, N)
-    tol = jnp.amax(s) * rcond
-    num = jnp.sum(s > tol, dtype=int)
-    Q = vh[num:, :].T.conj()
-    return Q
+#@jax.jit
+#  def null_space(A):
+#      """
+#      The scipy code to compute the null space of a matrix.
+#      """
+#      m, n = A
+#      Q, R = jnp.linalg.qr(A, mode="complete")
+#      eps = jnp.finfo(A.dtype).eps
+#      s = 0.
+#      r = m
+#      for j in range(m-1, -1, -1):
+#          s += jnp.sum(R[j, :])
+#          eps *= n
+#          if s <= eps:
+#              r = j
+#      Qnull = Q[r:, :].T.conj()
+#      return Qnull
+    #  u, s, vh = jnp.linalg.svd(A, full_matrices=True)
+    #  M, N = u.shape[0], vh.shape[1]
+    #  rcond = jnp.finfo(s.dtype).eps * max(M, N)
+    #  tol = jnp.amax(s) * rcond
+    #  num = jnp.sum(s > tol, dtype=int)
+    #  Q = vh[num:, :].T.conj()
+    #return Q
 
 
 @jax.jit

@@ -6,9 +6,8 @@ import numpy as np
 
 from jax_vumps.writer import Writer
 import jax_vumps.benchmark as benchmark
-import jax.config
+import jax_vumps.params as params
 
-#import jax_vumps.jax_backend.heff as jax_heff
 
 try:
     ENVIRON_NAME = os.environ["LINALG_BACKEND"]
@@ -24,14 +23,11 @@ HEFF_NAME = BACKEND_DIR_NAME + "heff"
 ENVIRONMENT_NAME = BACKEND_DIR_NAME + "environment"
 CONTRACTIONS_NAME = BACKEND_DIR_NAME + "contractions"
 
+
 mps_linalg = importlib.import_module(MPS_LINALG_NAME)
 heff = importlib.import_module(HEFF_NAME)
 environment = importlib.import_module(ENVIRONMENT_NAME)
 ct = importlib.import_module(CONTRACTIONS_NAME)
-
-#jax.config.update("jax_enable_x64", True)
-
-#  import jax_vumps.numpy_backend.heff as np_heff
 
 
 ##########################################################################
@@ -39,15 +35,15 @@ ct = importlib.import_module(CONTRACTIONS_NAME)
 ##########################################################################
 def ostr(string):
     """
-    Truncates to four decimal places.  """
-    return '{:1.4e}'.format(string)
+    Truncates to two decimal places.  """
+    return '{:1.2e}'.format(string)
 
 
 def output(writer, Niter, delta, E, dE, norm, timing_data=None):
     """
     Does the actual outputting.
     """
-    outstr = "N = " + str(Niter) + "| |eL| = " + ostr(delta)
+    outstr = "N = " + str(Niter) + "| eps = " + ostr(delta)
     outstr += "| E = " + '{0:1.16f}'.format(E)
     outstr += "| dE = " + ostr(dE)
     # outstr += "| |B2| = " + ostr(B2)
@@ -96,8 +92,7 @@ def make_writer(outdir=None):
 ###############################################################################
 # Effective environment.
 ###############################################################################
-def solve_environment(mpslist, delta, fpoints, H, env_solver_params,
-                      H_env=None):
+def solve_environment(mpslist, delta, fpoints, H, env_params, H_env=None):
     timing = {}
     timing["Environment"] = benchmark.tick()
     if H_env is None:
@@ -109,18 +104,16 @@ def solve_environment(mpslist, delta, fpoints, H, env_solver_params,
     rL, lR = fpoints
 
     timing["LH"] = benchmark.tick()
-    LH = environment.solve_for_LH(A_L, H, lR, env_solver_params, delta,
-                                  oldLH=lh)
+    LH = environment.solve_for_LH(A_L, H, lR, env_params, delta, oldLH=lh)
     timing["LH"] = benchmark.tock(timing["LH"], dat=LH)
 
     timing["RH"] = benchmark.tick()
-    RH = environment.solve_for_RH(A_R, H, rL, env_solver_params, delta,
-                                  oldRH=rh)
+    RH = environment.solve_for_RH(A_R, H, rL, env_params, delta, oldRH=rh)
     timing["RH"] = benchmark.tock(timing["RH"], dat=RH)
 
     H_env = [LH, RH]
     timing["Environment"] = benchmark.tock(timing["Environment"], dat=RH)
-    return H_env, timing
+    return (H_env, timing)
 
 
 ###############################################################################
@@ -128,27 +121,23 @@ def solve_environment(mpslist, delta, fpoints, H, env_solver_params,
 ###############################################################################
 
 
-def apply_gradient(iter_data, delta, H, heff_krylov_params, gauge_via_svd):
+def apply_gradient(iter_data, H, heff_krylov_params, gauge_via_svd):
     """
     Apply the MPS gradient.
     """
     timing = {}
     timing["Gradient"] = benchmark.tick()
-    mpslist, a_c, fpoints, H_env = iter_data
+    mpslist, a_c, fpoints, H_env, delta = iter_data
     a_l, c, a_r = mpslist
     rL, lR = fpoints
     LH, RH = H_env
     Hlist = [H, LH, RH]
     timing["HAc"] = benchmark.tick()
     _, A_C = heff.minimize_HAc(mpslist, a_c, Hlist, delta, heff_krylov_params)
-    #_, A_C = jax_heff.minimize_HAc(mpslist, a_c, Hlist, delta, heff_krylov_params)
-    #A_C = np.array(A_C)
     timing["HAc"] = benchmark.tock(timing["HAc"], dat=A_C)
 
     timing["Hc"] = benchmark.tick()
     _, C = heff.minimize_Hc(mpslist, Hlist, delta, heff_krylov_params)
-    # _, C = jax_heff.minimize_Hc(mpslist, Hlist, delta, heff_krylov_params)
-    #C = np.array(C)
     timing["Hc"] = benchmark.tock(timing["Hc"], dat=C)
 
     timing["Gauge Match"] = benchmark.tick()
@@ -156,23 +145,13 @@ def apply_gradient(iter_data, delta, H, heff_krylov_params, gauge_via_svd):
     timing["Gauge Match"] = benchmark.tock(timing["Gauge Match"], dat=A_L)
 
     timing["Loss"] = benchmark.tick()
-    delta = mps_linalg.norm(A_C - ct.rightmult(A_L, C))
-    
-    #delta2 = mps_linalg.vumps_loss(a_l, A_C)
-    #print("delta2 :", delta2)
+    eL = mps_linalg.norm(A_C - ct.rightmult(A_L, C))
+    eR = mps_linalg.norm(A_C - ct.leftmult(C, A_R))
+    delta = max(eL, eR)
     timing["Loss"] = benchmark.tock(timing["Loss"], dat=delta)
 
     newmpslist = [A_L, C, A_R]
     timing["Gradient"] = benchmark.tock(timing["Gradient"], dat=C)
-
-    # SWAPS IN OLD CODE ##########################
-    #  old_params = old_vumps.vumps_params()
-    #  A_C = old_vumps.minimize_HAc(mpslist, a_c, Hlist, old_params)
-    #  C = old_vumps.minimize_Hc(mpslist, Hlist, old_params)
-    #  A_L, A_R = old_vumps.gauge_match(A_C, C)
-    #  delta = vumps_loss(a_l, A_C)
-    #  newmpslist = [A_L, C, A_R]
-    # SWAPS IN OLD CODE ##########################
     return (newmpslist, A_C, delta, timing)
 
 
@@ -223,196 +202,140 @@ def vumps_initialization(d: int, chi: int, dtype=np.float32):
     return (mpslist, A_C, fpoints)
 
 
-def vumps_iteration(iter_data, delta, H, heff_krylov_params,
-                    env_solver_params, gauge_via_svd):
+def vumps_iteration(iter_data, H, heff_params, env_params, gauge_via_svd):
     """
     One main iteration of VUMPS.
     """
     timing = {}
     timing["Iteration"] = benchmark.tick()
-    mpslist, A_C, fpoints, H_env = iter_data
-    mpslist, A_C, delta, grad_time = apply_gradient(iter_data, delta, H,
-                                                    heff_krylov_params,
+    mpslist, A_C, delta, grad_time = apply_gradient(iter_data, H, heff_params,
                                                     gauge_via_svd)
     timing.update(grad_time)
     fpoints = vumps_approximate_tm_eigs(mpslist[1])
+    _, _, _, H_env, _ = iter_data
     H_env, env_time = solve_environment(mpslist, delta, fpoints, H,
-                                        env_solver_params,
-                                        H_env=H_env)
+                                        env_params, H_env=H_env)
+    iter_data = [mpslist, A_C, fpoints, H_env, delta]
     timing.update(env_time)
     timing["Iteration"] = benchmark.tock(timing["Iteration"], dat=H_env[0])
-    return ((mpslist, A_C, fpoints, H_env), delta, timing)
+    return (iter_data, timing)
 
 
-def diagnostics(oldmpslist, H, iter_data):
+def diagnostics(oldmpslist, mpslist, H, oldE):
     """
     Makes a few computations to output during a vumps run.
     """
     t0 = benchmark.tick()
-    mpslist, A_C, fpoints, H_env = iter_data
     E = mps_linalg.twositeexpect(mpslist, H)
+    dE = abs(E - oldE)
     norm = mps_linalg.mpsnorm(mpslist)
     tf = benchmark.tock(t0, dat=norm)
-    return E, norm, tf
+    return E, dE, norm, tf
 
 
-def krylov_params(n_krylov=40, n_diag=100, tol_coef=0.01, max_restarts=30,
-                  reorth=True):
-    """
-    Bundles parameters for the Lanczos eigensolver. These control
-    the expense of finding the left and right environment tensors, and of
-    minimizing the effective Hamiltonians.
-
-    PARAMETERS
-    ----------
-    n_krylov (int, 40): Size of the Krylov subspace.
-    n_diag (int, 100) : The solver checks convergence at this periodicity.
-    tol_coef (float, 0.01): This number times the MPS gradient will be the
-                            convergence threshold of the eigensolve.
-    max_restarts (int, 30): The solver exits here even if not yet converged.
-    reorth (bool, True): If True the solver reorthogonalizes the Lanczos
-                         vectors at each iteration. This is more expensive,
-                         especially for large n_krylov and low chi,
-                         but may be necessary for vumps to converge.
-    """
-    return {"n_krylov": n_krylov, "n_diag": n_diag, "reorth": reorth,
-            "tol_coef": tol_coef, "max_restarts": max_restarts}
-
-
-def gmres_params(n_krylov=40, max_restarts=20, tol_coef=0.01):
-    """
-    Bundles parameters for the GMRES linear solver. These control the
-    expense of finding the left and right environment Hamiltonians.
-
-    PARAMETERS
-    ----------
-    n_krylov (int): Size of the Krylov subspace.
-    max_restarts (int): Maximum number of times to iterate the Krylov
-                        space construction.
-    tol_coef (float): This number times the MPS gradient will set the
-                      convergence threshold of the linear solve.
-    """
-    return {"solver": "gmres", "n_krylov": n_krylov,
-            "max_restarts": max_restarts, "tol_coef": tol_coef}
-
-
-def lgmres_params(inner_m=30, outer_k=3, maxiter=100, tol_coef=0.01):
-    """
-    Bundles parameters for the LGMRES linear solver. These control the
-    expense of finding the left and right environment Hamiltonians.
-
-    PARAMETERS
-    ----------
-    inner_m (int, 30): Number of gmres iterations per outer k loop.
-    outer_k (int, 3) : Number of vectors to carry between inner iterations.
-    maxiter (int)    : lgmres terminates after this many iterations.
-    tol_coef (float): This number times the MPS gradient will set the
-                      convergence threshold of the linear solve.
-    """
-    return {"solver": "lgmres", "inner_m": inner_m, "maxiter": maxiter,
-            "outer_k": outer_k, "tol_coef": tol_coef}
-
-
-def vumps(H, chi: int, gradient_tol: float, max_iter: int,
-          delta_0=0.1,
-          checkpoint_every=500,
+def vumps(H, chi: int, delta_0=0.1,
           out_directory="./vumps",
-          gauge_via_svd=True,
-          heff_krylov_params=krylov_params(),
-          env_solver_params=gmres_params()):
-    # env_solver_params=solver_params()):
-    """ Find the ground state of a uniform two-site Hamiltonian
+          vumps_params=params.vumps_params(),
+          heff_params=params.krylov_params(),
+          env_params=params.gmres_params()
+          ):
+    """
+    Find the ground state of a uniform two-site Hamiltonian
     using Variational Uniform Matrix Product States. This is a gradient
     descent method minimizing the distance between a given MPS and the
     best approximation to the physical ground state at its bond dimension.
+
+    This interface function initializes vumps from a random initial state.
 
     PARAMETERS
     ----------
     H (array, (d, d, d, d)): The Hamiltonian whose ground state is to be found.
     chi (int)              : MPS bond dimension.
-    gradient_tol (float)   : Convergence is declared once the gradient norm is
-                             at least this small.
-    max_iter (int)         : VUMPS ends after this many iterations even if
-                             unconverged.
     delta_0 (float)        : Initial value for the gradient norm. The
                              convergence thresholds of the various solvers at
                              the initial step are proportional to this, via
                              coefficients in the Krylov and solver param dicts.
-    checkpoint_every (int) : Simulation data is pickled at this periodicity.
-    out_directory (string) : Output is saved here. The directory is created
-                             if it doesn't exist.
-    gauge_via_svd (bool, True): With the Jax backend, toggles whether the gauge
-                                match at the
-                                end of each iteration is computed using
-                                an SVD or the QDWH-based polar decomposition.
-                                The former is typically faster on the CPU
-                                or TPU, but the latter is much faster on the
-                                GPU. With the NumPy backend, this
-                                parameter has no effect and the SVD is always
-                                used.
-    heff_krylov_params(dict):Hyperparameters for an eigensolve of certain
+
+    The following arguments are bundled together by initialization functions
+    in jax_vumps.params.
+
+    vumps_params (dict)    : Hyperparameters for the vumps solver. Formed
+                             by 'vumps_params'.
+    heff_params (dict)     : Hyperparameters for an eigensolve of certain
                              'effective Hamiltonians'. Formed by
                              'krylov_params()'.
-    env_solver_params      : Hyperparameters for a linear solve that finds
+    env_params (dict)      : Hyperparameters for a linear solve that finds
                              the effective Hamiltonians. Formed by
                              'solver_params()'.
 
     RETURNS
     -------
-    allout = mpslist, A_C, H_env.
-            mpslist = [A_L, C, A_R] stores the MPS wavefunction.
-            A_C and H_env are information needed to restart vumps.
-    deltas (list of floats): List of the gradient values.
     """
-    t_total = benchmark.tick()
 
     writer = make_writer(out_directory)
-    delta = delta_0
-    deltas = []
     d = H.shape[0]
     mpslist, A_C, fpoints = vumps_initialization(d, chi, H.dtype)
-    writer.write("VUMPS! VUMPS! VUMPS/VUMPS/VUMPS/VUMPS! VUMPS!")
-    writer.write("Linalg backend: " + MPS_LINALG_NAME)
-    H_env, env_init_time = solve_environment(mpslist,
-                                             delta, fpoints, H,
-                                             env_solver_params)
-
-    E = mps_linalg.twositeexpect(mpslist, H)
-    writer.write("Initial energy: " + str(E))
+    H_env, env_init_time = solve_environment(mpslist, delta_0,
+                                             fpoints, H, env_params)
+    iter_data = [mpslist, A_C, fpoints, H_env, delta_0]
     writer.write("Initial solve time: " + str(env_init_time["Environment"]))
+    out = vumps_work(H, iter_data, vumps_params, heff_params,
+                     env_params, writer)
+    return out
+
+
+def vumps_work(H, iter_data, vumps_params, heff_params, env_params, writer,
+               Niter0=1):
+    """
+    Main work loop for vumps. Should be accessed via one of the interface
+    functions above.
+
+    PARAMETERS
+    ----------
+    H
+
+    """
+    checkpoint_every = vumps_params["checkpoint_every"]
+    max_iter = vumps_params["max_iter"]
+
+    t_total = benchmark.tick()
+    mpslist, A_C, fpoints, H_env, delta = iter_data
+    E = mps_linalg.twositeexpect(mpslist, H)
+    writer.write("VUMPS! VUMPS! VUMPS/VUMPS/VUMPS/VUMPS! VUMPS!")
+    writer.write("Initial energy: " + str(E))
+    writer.write("Linalg backend: " + MPS_LINALG_NAME)
     writer.write("And so it begins...")
-    iter_data = [mpslist, A_C, fpoints, H_env]
-    for Niter in range(max_iter):
-        oldE = E
+    for Niter in range(Niter0, vumps_params["max_iter"]+Niter0):
+        dT = benchmark.tick()
         timing = {}
-        timing["Total"] = benchmark.tick()
+        oldE = E
         oldlist = copy.deepcopy(mpslist)
-        iter_data, delta, iter_time = vumps_iteration(iter_data, delta, H,
-                                                      heff_krylov_params,
-                                                      env_solver_params,
-                                                      gauge_via_svd)
+        iter_data, iter_time = vumps_iteration(iter_data, H, heff_params,
+                                               env_params,
+                                               vumps_params["gauge_via_svd"])
+        mpslist, A_C, fpoints, H_env, delta = iter_data
         timing.update(iter_time)
 
-        E, norm, tD = diagnostics(oldlist, H, iter_data)
-        dE = abs(E - oldE)
-
+        E, dE, norm, tD = diagnostics(oldlist, mpslist, H, oldE)
         timing["Diagnostics"] = tD
-        timing["Total"] = benchmark.tock(timing["Total"], dat=iter_data[1])
+        timing["Total"] = benchmark.tock(dT, dat=iter_data[1])
         output(writer, Niter, delta, E, dE, norm, timing)
-        deltas.append(delta)
 
-        if delta <= gradient_tol:
+        if delta <= vumps_params["gradient_tol"]:
             writer.write("Convergence achieved at iteration " + str(Niter))
             break
 
         if checkpoint_every is not None and (Niter+1) % checkpoint_every == 0:
             writer.write("Checkpointing...")
-            writer.pickle(iter_data, Niter)
+            to_pickle = [H, iter_data, vumps_params, heff_params, env_params]
+            to_pickle.append(Niter)
+            writer.pickle(to_pickle, Niter)
 
     if Niter == max_iter - 1:
         writer.write("Maximum iteration " + str(max_iter) + " reached.")
     t_total = benchmark.tock(t_total, dat=mpslist[0])
-    writer.write("The simulation took " + str(t_total) + " seconds.")
+    writer.write("The main loops took " + str(t_total) + " seconds.")
     writer.write("Simulation finished. Pickling results.")
-    writer.pickle(iter_data, Niter)
-    return (iter_data, deltas)
+    to_pickle = [H, iter_data, vumps_params, heff_params, env_params, Niter]
+    writer.pickle(to_pickle, Niter)
+    return (iter_data, timing)

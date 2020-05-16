@@ -296,6 +296,27 @@ def apply_HAc(A_C, A_L, A_R, Hlist):
     return A_C_prime
 
 
+def apply_Hac_context(A_C, A_L, A_R, Hlist):
+    H, LH, RH = Hlist
+    A_Ls = A_L.conj()
+    A_Rs = A_R.conj()
+    with Tensor() as A_C_prime:
+        t1 = A_L["b,a,d"] @ A_Ls["c,a,$b"]
+        t1 @= A_C["e,d,$c"] @ H["c,$a,b,e"]
+
+        t2 = A_C["e,$b,d"] @ A_R["b,d,a"]
+        t2 @= A_Rs["c,$c,a"] @ H["$a,c,e,b"]
+
+        t3 = leftmult(LH, A_C)
+        t4 = rightmult(A_C, RH.T)
+
+        A_C_prime["$a,$b,$c"] = t1["$a,$b,$c"] + t2["$a,$b,$c"]
+        A_C_prime["$a,$b,$c"] += t3["$a,$b,$c"] + t4["$a,$b,$c"]
+    return A_C_prime
+
+
+
+
 #  @jax.jit
 #  def Hc_norm_est(A_L, A_R, Hlist):
 #      """

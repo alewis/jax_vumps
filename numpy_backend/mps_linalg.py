@@ -19,6 +19,7 @@ def vumps_loss(A_L, A_C):
     A_L_dag = A_L_mat.T.conj()
     N_L = null_space(A_L_dag)
     N_L_dag = N_L.T.conj()
+
     A_C_mat = fuse_left(A_C)
     B = N_L_dag @ A_C_mat
     Bnorm = norm(B)
@@ -265,6 +266,23 @@ def gauge_match(A_C, C, svd=True):
     A_R = UC.T.conj() @  UAc_r
     A_R = unfuse_right(A_R, Ashape)
     return (A_L, A_R)
+
+
+def gauge_match_qr(A_C, C):
+    Ashape = A_C.shape
+    UC, _ = qrpos(C)
+
+    AC_mat_l = fuse_left(A_C)
+    UAc_l, _ = qrpos(AC_mat_l)
+    A_L = UAc_l @ UC.T.conj()
+    A_L = unfuse_left(A_L, Ashape)
+
+    AC_mat_r = fuse_right(A_C)
+    UAc_r, _ = qrpos(AC_mat_r)
+    A_R = UC.T.conj() @  UAc_r
+    A_R = unfuse_right(A_R, Ashape)
+    return (A_L, A_R)
+
 
 
 def polar(a, side="right", compute_p=False):
