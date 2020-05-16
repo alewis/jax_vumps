@@ -93,7 +93,7 @@ def vumps_ising(J, h, bond_dimension: int, delta_0=0.1,
 
 def vumps_from_checkpoint(checkpoint_path, out_directory="./vumps_load",
                           new_vumps_params=None, new_heff_params=None,
-                          new_env_params=None):
+                          new_env_params=None, jax_linalg=True):
     """
     Find the ground state of a uniform two-site Hamiltonian
     using Variational Uniform Matrix Product States. This is a gradient
@@ -107,6 +107,11 @@ def vumps_from_checkpoint(checkpoint_path, out_directory="./vumps_load",
     checkpoint_path (string): Path to the checkpoint .pkl file.
     """
     writer = vumps.make_writer(out_directory)
+    if jax_linalg:
+        os.environ["LINALG_BACKEND"] = "jax"
+    else:
+        os.environ["LINALG_BACKEND"] = "numpy"
+    reload(vumps)
     with open(checkpoint_path, "rb") as f:
         chk = pkl.load(f)
 
